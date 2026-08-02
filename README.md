@@ -8,9 +8,11 @@ Desktop OTP authenticator application.
 
 ## Screenshot
 
-![Main Screenshot](screenshot/screenshot.png)
-![Locked Screenshot](screenshot/screenshot_locked.png)
-![All Windows Screenshot](screenshot/screenshot_all.png)
+<p align="left">
+  <img src="screenshot/screenshot.png" width="500" alt="Скриншот">
+  <img src="screenshot/screenshot_locked.png" width="500" alt="Скриншот">
+  <img src="screenshot/screenshot_all.png" width="500" alt="Скриншот">
+</p>
 
 ## Features
 
