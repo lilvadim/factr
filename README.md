@@ -6,6 +6,12 @@
 
 Desktop OTP authenticator application.
 
+## Screenshot
+
+![Main Screenshot](screenshot/screenshot.png)
+![Locked Screenshot](screenshot/screenshot_locked.png)
+![All Windows Screenshot](screenshot/screenshot_all.png)
+
 ## Features
 
 - fast
