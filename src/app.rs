@@ -42,11 +42,6 @@ impl eframe::App for FactrApp {
         if close_shortcut {
             ctx.send_viewport_cmd(ViewportCommand::Close);
         }
-        if self.config.always_on_top {
-            ctx.send_viewport_cmd(ViewportCommand::WindowLevel(WindowLevel::AlwaysOnTop));
-        } else {
-            ctx.send_viewport_cmd(ViewportCommand::WindowLevel(WindowLevel::Normal));
-        }
     }
 }
 
@@ -141,7 +136,7 @@ impl FactrApp {
 
     fn ui(&mut self, ui: &mut Ui) {
         let actions = self.display(ui);
-        self.handle_actions(actions);
+        self.handle_actions(ui.ctx(), actions);
     }
 
     fn display_setup(setup_display: &mut SetupDisplay, ui: &mut Ui) -> Vec<UiAction> {
@@ -427,13 +422,13 @@ impl FactrApp {
         rank
     }
 
-    fn handle_actions(&mut self, actions: Vec<UiAction>) {
+    fn handle_actions(&mut self, ctx: &egui::Context, actions: Vec<UiAction>) {
         actions
             .into_iter()
-            .for_each(|action| self.handle_action(action));
+            .for_each(|action| self.handle_action(ctx, action));
     }
 
-    fn handle_action(&mut self, action: UiAction) {
+    fn handle_action(&mut self, ctx: &egui::Context, action: UiAction) {
         match action {
             UiAction::UnlockVault => {
                 self.error = self.unlock_vault().err();
@@ -500,6 +495,14 @@ impl FactrApp {
                 if let Some(settings_display) = &self.display.settings_display {
                     self.config.close_after_copy = settings_display.close_after_copy;
                     self.config.always_on_top = settings_display.always_on_top;
+
+                    if self.config.always_on_top {
+                        ctx.send_viewport_cmd(ViewportCommand::WindowLevel(
+                            WindowLevel::AlwaysOnTop,
+                        ));
+                    } else {
+                        ctx.send_viewport_cmd(ViewportCommand::WindowLevel(WindowLevel::Normal));
+                    }
 
                     self.error = config::save_to_dot_config(&self.config).err();
                 }
