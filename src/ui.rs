@@ -1,4 +1,5 @@
 use egui::{Frame, Label, RichText, Sense, Ui, UiBuilder, Widget};
+use rust_i18n::t;
 
 use crate::display::AccountDisplay;
 
@@ -29,8 +30,9 @@ pub fn account_ui(ui: &mut Ui, account: &AccountDisplay) -> egui::Response {
                             .selectable(false)
                             .ui(ui);
                         Label::new(RichText::new(format!(
-                            "{}s remains",
-                            account.remaining_secs
+                            "{} {}",
+                            account.remaining_secs,
+                            t!("sec")
                         )))
                         .selectable(false)
                         .ui(ui);

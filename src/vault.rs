@@ -24,6 +24,11 @@ pub enum PasswordInvalidError {
     TooShort,
 }
 
+pub enum VaultDecryptError {
+    DecryptFailed,
+    Other(String),
+}
+
 impl Display for PasswordInvalidError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -85,10 +90,10 @@ impl Account {
         Ok(Self { totp })
     }
 
-    pub fn from_encrypted(
+    pub fn decrypted(
         key: &[u8; KEY_LEN],
         encrypted_account: &EncryptedAccount,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, VaultDecryptError> {
         let secret = decrypt_secret(&encrypted_account.encrypted_secret_b64, key)?;
         let totp = init_totp(
             encrypted_account.issuer.to_owned(),
@@ -98,7 +103,7 @@ impl Account {
             encrypted_account.period,
             secret.to_owned(),
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| VaultDecryptError::Other(e.to_string()))?;
         Ok(Self { totp })
     }
 
@@ -129,15 +134,17 @@ impl Vault {
         })
     }
 
-    pub fn decrypt_storage(password: &str, storage: &Storage) -> Result<Vault, String> {
-        let master_key = master_key(password, &storage.salt_b64)?;
-        let accounts: Result<Vec<Account>, String> = storage
+    pub fn decrypt_storage(password: &str, storage: &Storage) -> Result<Vault, VaultDecryptError> {
+        let master_key =
+            master_key(password, &storage.salt_b64).map_err(VaultDecryptError::Other)?;
+        let accounts: Result<Vec<Account>, VaultDecryptError> = storage
             .accounts
             .iter()
-            .map(|enc| Account::from_encrypted(&master_key, enc))
+            .map(|enc| Account::decrypted(&master_key, enc))
             .collect();
         let accounts = accounts?;
-        let salt = SaltString::from_b64(&storage.salt_b64).map_err(|e| e.to_string())?;
+        let salt = SaltString::from_b64(&storage.salt_b64)
+            .map_err(|e| VaultDecryptError::Other(e.to_string()))?;
         Ok(Self {
             master_key,
             accounts,
@@ -180,16 +187,6 @@ fn init_totp(
     Ok(totp)
 }
 
-pub fn master_key(password: &str, salt_b64: &str) -> Result<[u8; KEY_LEN], String> {
-    let argon2 = Argon2::default();
-    let salt = SaltString::from_b64(salt_b64).map_err(|e| e.to_string())?;
-    let mut key = [0u8; KEY_LEN];
-    argon2
-        .hash_password_into(password.as_bytes(), salt.as_str().as_bytes(), &mut key)
-        .map_err(|e| e.to_string())?;
-    Ok(key)
-}
-
 pub fn encrypt_secret(secret: &[u8], key: &[u8; KEY_LEN]) -> Result<String, String> {
     let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| e.to_string())?;
     let mut nonce_bytes = [0u8; NONCE_LEN];
@@ -203,14 +200,28 @@ pub fn encrypt_secret(secret: &[u8], key: &[u8; KEY_LEN]) -> Result<String, Stri
     Ok(BASE64_STANDARD.encode(&combined))
 }
 
-pub fn decrypt_secret(encrypted_secret_b64: &str, key: &[u8; KEY_LEN]) -> Result<Vec<u8>, String> {
+fn master_key(password: &str, salt_b64: &str) -> Result<[u8; KEY_LEN], String> {
+    let argon2 = Argon2::default();
+    let salt = SaltString::from_b64(salt_b64).map_err(|e| e.to_string())?;
+    let mut key = [0u8; KEY_LEN];
+    argon2
+        .hash_password_into(password.as_bytes(), salt.as_str().as_bytes(), &mut key)
+        .map_err(|e| e.to_string())?;
+    Ok(key)
+}
+
+fn decrypt_secret(
+    encrypted_secret_b64: &str,
+    key: &[u8; KEY_LEN],
+) -> Result<Vec<u8>, VaultDecryptError> {
     let combined = BASE64_STANDARD
         .decode(encrypted_secret_b64)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| VaultDecryptError::Other(e.to_string()))?;
     let (nonce_bytes, cipher_text) = combined.split_at(NONCE_LEN);
-    let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| e.to_string())?;
+    let cipher =
+        Aes256Gcm::new_from_slice(key).map_err(|e| VaultDecryptError::Other(e.to_string()))?;
     let nonce = Nonce::from_slice(nonce_bytes);
     cipher
         .decrypt(nonce, cipher_text)
-        .map_err(|_| "Decrypt Error".to_string())
+        .map_err(|_| VaultDecryptError::DecryptFailed)
 }

@@ -1,0 +1,36 @@
+ok: Ок
+password: Пароль
+filter-search: Поиск
+lock-vault: Заблокировать
+add-code: Добавить код
+settings-label: Настройки
+delete: Удалить
+vault-locked: Хранилище заблокировано
+enter-password: Введите пароль
+unlock-vault: Разблокировать хранилище
+sec: сек.
+error-label: Ошибка
+wrong-password: Неверный пароль
+account:
+  secret: Секретный ключ
+  name: Имя пользователя
+  issuer: Название
+  algorithm: Алгоритм
+  digits: Кол-во цифр
+  period: Период (сек.)
+setup:
+  title: Здравствуйте!
+  about-need: Вам нужен пароль, чтобы защитить свои коды.
+  about-disk: Данные будут широфваться этим паролем и храниться на диске.
+  about-vault: Пароль будет спрашиваться при каждом запуске приложения для разблокировки хранилища.
+  remember: Запомните его!
+  enter-password: Введите пароль
+add:
+  method: Способ добавления
+  manual-input: Ручной ввод
+  additional: Дополнительно
+  restore-defaults: Вернуть стандартные значения
+  add: Добавить
+settings:
+  close-after-copy: Закрыть после копирования
+  always-on-top: Поверх всех окон

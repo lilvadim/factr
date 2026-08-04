@@ -1,0 +1,36 @@
+ok: Ok
+password: Password
+filter-search: Search
+lock-vault: Lock Vault
+add-code: Add New Code
+settings-label: Settings
+delete: Delete
+vault-locked: Vault is Locked
+enter-password: Enter Password
+unlock-vault: Unlock Vault
+sec: sec
+error-label: Error
+wrong-password: Wrong Password
+account:
+  secret: Secret Key
+  name: Username
+  issuer: Name
+  algorithm: Algorithm
+  digits: Digits
+  period: Period (secs)
+setup:
+  title: Hello!
+  about-need: You need a password to secure your codes.
+  about-disk: Sensitive data is encrypted with the password and stored on disk.
+  about-vault: This password will be asked every time you open the app to unlock the vault.
+  remember: Remember it!
+  enter-password: Enter password
+add:
+  method: Input Method
+  manual-input: Manual Input
+  additional: Additional
+  restore-defaults: Restore Defaults
+  add: Add
+settings:
+  close-after-copy: Close after Copy
+  always-on-top: Always on Top

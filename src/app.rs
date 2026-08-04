@@ -5,6 +5,7 @@ use crate::display::VaultDisplay;
 use crate::encrypted_storage::Storage;
 use crate::ui;
 use crate::vault;
+use crate::vault::VaultDecryptError;
 use std::{path::Path, sync::Arc};
 
 use egui::Button;
@@ -18,6 +19,7 @@ use egui::Widget;
 use egui::Window;
 use egui::WindowLevel;
 use egui::{Color32, ComboBox, RichText, Stroke, TextEdit};
+use rust_i18n::t;
 use totp_rs::Algorithm;
 
 use crate::{
@@ -118,14 +120,16 @@ impl FactrApp {
     }
 
     fn unlock_vault(&mut self) -> Result<(), String> {
-        if self.display.password.is_empty() {
-            return Err("Password is empty!".to_string());
-        }
         let storage: Storage = serde_json::from_str(
             &std::fs::read_to_string(&self.config.storage_file).map_err(|e| e.to_string())?,
         )
         .map_err(|e| e.to_string())?;
-        self.vault = Some(Vault::decrypt_storage(&self.display.password, &storage)?);
+        self.vault = Some(
+            Vault::decrypt_storage(&self.display.password, &storage).map_err(|e| match e {
+                VaultDecryptError::DecryptFailed => t!("wrong-password").to_string(),
+                VaultDecryptError::Other(str) => str,
+            })?,
+        );
         self.display.password = "".to_string();
         Ok(())
     }
@@ -141,19 +145,19 @@ impl FactrApp {
 
     fn display_setup(setup_display: &mut SetupDisplay, ui: &mut Ui) -> Vec<UiAction> {
         let mut actions = Vec::new();
-        ui.heading("Hello!");
+        ui.heading(t!("setup.title"));
         ui.add_space(ui.spacing().item_spacing.y);
-        ui.strong("You need a password to secure your codes.");
-        ui.label("Sensitive data is encrypted with the password and stored on disk.");
-        ui.label("This password will be asked every time you open the app to unlock the vault.");
-        ui.strong("Remember it.");
+        ui.strong(t!("setup.about-need"));
+        ui.label(t!("setup.about-disk"));
+        ui.label(t!("setup.about-vault"));
+        ui.strong(t!("setup.remember"));
         ui.add_space(ui.spacing().item_spacing.y * 4f32);
-        ui.label("Enter Password:");
+        ui.label(format!("{}:", t!("setup.enter-password")));
         TextEdit::singleline(&mut setup_display.password)
-            .hint_text("Password")
+            .hint_text(t!("password"))
             .password(true)
             .show(ui);
-        if ui.button("Ok").clicked() {
+        if ui.button(t!("ok")).clicked() {
             actions.push(UiAction::Setup);
         }
         if let Some(error) = &setup_display.error {
@@ -173,10 +177,10 @@ impl FactrApp {
     fn display_add(display: &mut AddDisplay, ui: &mut Ui) -> Vec<UiAction> {
         let mut actions = Vec::new();
         let method_name = |method: &AddMethod| match method {
-            AddMethod::OtpAuthUrl => "OTP Auth URL",
-            AddMethod::ManualInput => "Manual Input",
+            AddMethod::OtpAuthUrl => "OTP Auth URL".to_string(),
+            AddMethod::ManualInput => t!("add.manual-input").to_string(),
         };
-        ComboBox::from_label("Input Method")
+        ComboBox::from_label(t!("add.method"))
             .selected_text(method_name(&display.method))
             .show_ui(ui, |ui| {
                 ui.selectable_value(
@@ -198,25 +202,34 @@ impl FactrApp {
             }
             AddMethod::ManualInput => {
                 ui.horizontal(|ui| {
-                    ui.label("Issuer");
-                    ui.text_edit_singleline(&mut display.manual.issuer);
+                    ui.label(t!("account.issuer"));
+                    TextEdit::singleline(&mut display.manual.issuer)
+                        .hint_text(t!("account.issuer"))
+                        .ui(ui);
                 });
                 ui.horizontal(|ui| {
-                    ui.label("Account");
-                    ui.text_edit_singleline(&mut display.manual.account_name);
+                    ui.label(t!("account.name"));
+                    TextEdit::singleline(&mut display.manual.account_name)
+                        .hint_text(t!("account.name"))
+                        .ui(ui);
                 });
                 ui.horizontal(|ui| {
-                    ui.label("Secret");
-                    ui.text_edit_singleline(&mut display.manual.secret);
+                    ui.label(t!("account.secret"));
+                    TextEdit::singleline(&mut display.manual.secret)
+                        .hint_text(t!("account.secret"))
+                        .ui(ui);
                 });
-                ui.checkbox(&mut display.extra_input, "Additional...");
+                ui.checkbox(
+                    &mut display.extra_input,
+                    format!("{}...", t!("add.additional")),
+                );
                 if display.extra_input {
                     let mut manual_extra = display.manual_extra.get_or_insert_default();
-                    if ui.button("Restore Defaults").clicked() {
+                    if ui.button(t!("add.restore-defaults")).clicked() {
                         manual_extra = display.manual_extra.insert(ManualInputExtra::default());
                     }
                     ui.horizontal(|ui| {
-                        ui.label("Algorithm");
+                        ui.label(t!("account.algorithm"));
                         ComboBox::from_id_salt(Id::new("manual_extra.algo"))
                             .selected_text(manual_extra.algo.to_string())
                             .show_ui(ui, |ui| {
@@ -238,11 +251,11 @@ impl FactrApp {
                             });
                     });
                     ui.horizontal(|ui| {
-                        ui.label("Digits");
+                        ui.label(t!("account.digits"));
                         DragValue::new(&mut manual_extra.digits).range(6..=8).ui(ui);
                     });
                     ui.horizontal(|ui| {
-                        ui.label("Period");
+                        ui.label(t!("account.period"));
                         DragValue::new(&mut manual_extra.period)
                             .range(5..=300)
                             .ui(ui);
@@ -253,7 +266,7 @@ impl FactrApp {
         if let Some(error) = &display.error {
             Self::display_error(ui, error);
         }
-        if ui.button("Add").clicked() {
+        if ui.button(t!("add.add")).clicked() {
             actions.push(UiAction::Add);
         }
         actions
@@ -263,19 +276,19 @@ impl FactrApp {
         let mut actions = Vec::new();
         ui.horizontal(|ui| {
             let filter = TextEdit::singleline(&mut self.display.filter_search)
-                .hint_text("Filter...")
+                .hint_text(format!("{}...", t!("filter-search")))
                 .ui(ui);
             if self.display.search_focus {
                 filter.request_focus();
             }
             ui.add_space(ui.spacing().item_spacing.x);
-            if ui.button("Lock Vault").clicked() {
+            if ui.button(t!("lock-vault")).clicked() {
                 actions.push(UiAction::LockVault);
             }
-            if ui.button("Add New Code").clicked() {
+            if ui.button(t!("add-code")).clicked() {
                 self.display.add_ui = true;
             }
-            if ui.button("Settings").clicked() {
+            if ui.button(t!("settings-label")).clicked() {
                 self.display.settings_ui = true;
             }
         });
@@ -286,13 +299,16 @@ impl FactrApp {
         let mut actions = Vec::new();
         ui.vertical(|ui| {
             if ui
-                .checkbox(&mut settings.close_after_copy, "Close After Copy")
+                .checkbox(
+                    &mut settings.close_after_copy,
+                    t!("settings.close-after-copy"),
+                )
                 .clicked()
             {
                 actions.push(UiAction::UpdateConfiguration);
             }
             if ui
-                .checkbox(&mut settings.always_on_top, "Always on Top")
+                .checkbox(&mut settings.always_on_top, t!("settings.always-on-top"))
                 .clicked()
             {
                 actions.push(UiAction::UpdateConfiguration);
@@ -304,7 +320,7 @@ impl FactrApp {
     fn display_main(&mut self, ui: &mut Ui) -> Vec<UiAction> {
         let mut actions = Vec::new();
 
-        Window::new("Add New Code")
+        Window::new(t!("add-code"))
             .collapsible(false)
             .open(&mut self.display.add_ui)
             .show(ui.ctx(), |ui| {
@@ -313,7 +329,7 @@ impl FactrApp {
                     ui,
                 ));
             });
-        Window::new("Settings")
+        Window::new(t!("settings-label"))
             .collapsible(false)
             .open(&mut self.display.settings_ui)
             .show(ui.ctx(), |ui| {
@@ -365,7 +381,7 @@ impl FactrApp {
                         }
                     }
                     response.context_menu(|ui| {
-                        if ui.button("Delete").clicked() {
+                        if ui.button(t!("delete")).clicked() {
                             actions.push(UiAction::Delete(i));
                         }
                     });
@@ -373,16 +389,16 @@ impl FactrApp {
             });
         } else {
             Frame::new().inner_margin(25.0).show(ui, |ui| {
-                ui.heading("Vault is locked");
+                ui.heading(t!("vault-locked"));
                 ui.add_space(ui.spacing().item_spacing.y);
                 TextEdit::singleline(&mut self.display.password)
-                    .hint_text("Enter password")
+                    .hint_text(t!("enter-password"))
                     .password(true)
                     .show(ui)
                     .response
                     .request_focus();
                 ui.add_space(ui.spacing().item_spacing.y);
-                if Button::new(RichText::new("Unlock Vault").strong())
+                if Button::new(RichText::new(t!("unlock-vault")).strong())
                     .ui(ui)
                     .clicked()
                     || ui.input(|i| i.key_pressed(Key::Enter))
@@ -537,7 +553,11 @@ impl FactrApp {
             .stroke(Stroke::new(2.0_f32, Color32::LIGHT_RED))
             .inner_margin(10.0)
             .show(ui, |ui| {
-                ui.label(RichText::new("Error").heading().color(Color32::LIGHT_RED));
+                ui.label(
+                    RichText::new(t!("error-label"))
+                        .heading()
+                        .color(Color32::LIGHT_RED),
+                );
                 ui.label(error);
             });
     }
