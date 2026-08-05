@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use totp_rs::Algorithm;
 
-use crate::vault;
+use crate::vault::{self};
 
 const KEY_LEN: usize = 32;
 
@@ -31,6 +31,7 @@ impl EncryptedAccount {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Storage {
     pub salt_b64: String,
+    pub sealed_check: String,
     pub accounts: Vec<EncryptedAccount>,
 }
 
@@ -43,6 +44,11 @@ impl Storage {
             .map(|acc| EncryptedAccount::encrypt_account(acc, &vault.master_key))
             .collect();
         let accounts = accounts?;
-        Ok(Self { salt_b64, accounts })
+        let sealed_check = vault::encrypt_secret(vault.check_value.as_bytes(), &vault.master_key)?;
+        Ok(Self {
+            salt_b64,
+            accounts,
+            sealed_check,
+        })
     }
 }
