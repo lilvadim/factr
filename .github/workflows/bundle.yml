@@ -1,0 +1,31 @@
+name: Package Distribution Artifacts
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package_app:
+    strategy:
+      matrix:
+        configuration:
+          [
+            { runner: "macos-15-intel", path: "target/release/bundle/dmg/Factr.dmg" },
+            { runner: "macos-15", path: "target/release/bundle/dmg/Factr.dmg" },
+            { runner: "windows-2022", path: "target/release/bundle/exe/*.exe" },
+            { runner: "ubuntu-latest", path: "target/release/bundle/appimage/*.AppImage" },
+          ]
+    runs-on: ${{ matrix.configuration.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Bundler
+        run: cargo install cargo-bundle
+      - name: Install Bundler
+        run: cargo bundle --release
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Factr_${{ runner.os }}-${{ runner.arch }}
+          path: ${{ matrix.configuration.path }}

@@ -2,11 +2,13 @@
 name = "factr-auth"
 version = "1.0.0"
 edition = "2024"
+description = "TOTP authenticator app"
 
 [package.metadata.bundle]
 name = "Factr"
 identifier = "factr-auth"
 icon = ["assets/icon/factr_icon.png"]
+category = "public.app-category.utilities"
 
 [dependencies]
 egui = { version = "0.33.2", features = ["default", "persistence"] }

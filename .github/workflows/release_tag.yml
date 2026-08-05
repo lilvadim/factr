@@ -1,0 +1,53 @@
+name: Release on Tag
+
+on:
+  push:
+    tags:
+      - "*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create Release
+        id: create_release
+        run: gh release create ${{ github.ref_name }} -t "GEM ${{ github.ref_name }}" --generate-notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  package_and_upload:
+    needs: release
+    strategy:
+      matrix:
+        configuration:
+          [
+            { runner: "macos-15-intel", path: "build/dist" },
+            { runner: "macos-15", path: "build/dist" },
+            { runner: "windows-2022", path: "build/dist" },
+          ]
+    runs-on: ${{ matrix.configuration.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup JDK
+        uses: actions/setup-java@v3
+        with:
+          java-version: "21"
+          distribution: "liberica"
+          cache: "gradle"
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+      - name: Package app with Gradle
+        run: ./gradlew jpackage -Pversion="${{ github.ref_name }}"
+      - name: Upload Asset
+        shell: bash
+        run: |
+          DIST_ARCHIVE=gem_${{ runner.os }}-${{ runner.arch }}.zip
+          cd ${{ matrix.configuration.path }}
+          7z a -tzip $DIST_ARCHIVE *
+          gh release upload ${{ github.ref_name }} $DIST_ARCHIVE
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
