@@ -118,7 +118,6 @@ impl Account {
 }
 
 pub struct Vault {
-    pub check_value: String,
     pub master_key: [u8; KEY_LEN],
     pub salt: SaltString,
     pub accounts: Vec<Account>,
@@ -132,7 +131,6 @@ impl Vault {
             master_key,
             salt,
             accounts: Vec::new(),
-            check_value: "FACTR_AUTH".to_string(),
         })
     }
 
@@ -140,8 +138,9 @@ impl Vault {
         let master_key =
             master_key(password, &storage.salt_b64).map_err(VaultDecryptError::Other)?;
         let check_value = decrypt_secret(&storage.sealed_check, &master_key)?;
-        let check_value =
-            String::from_utf8(check_value).map_err(|_| VaultDecryptError::DecryptFailed)?;
+        if check_value != Storage::SEALED_CHECK {
+            return Err(VaultDecryptError::Other("Wrong Check Value".to_string()));
+        }
         let accounts: Result<Vec<Account>, VaultDecryptError> = storage
             .accounts
             .iter()
@@ -154,7 +153,6 @@ impl Vault {
             master_key,
             accounts,
             salt,
-            check_value,
         })
     }
 }

@@ -36,6 +36,8 @@ pub struct Storage {
 }
 
 impl Storage {
+    pub const SEALED_CHECK: &[u8] = b"FACTR_AUTH_CHECK";
+
     pub fn encrypt_vault(vault: &vault::Vault) -> Result<Self, String> {
         let salt_b64 = vault.salt.to_string();
         let accounts: Result<Vec<EncryptedAccount>, String> = vault
@@ -44,7 +46,7 @@ impl Storage {
             .map(|acc| EncryptedAccount::encrypt_account(acc, &vault.master_key))
             .collect();
         let accounts = accounts?;
-        let sealed_check = vault::encrypt_secret(vault.check_value.as_bytes(), &vault.master_key)?;
+        let sealed_check = vault::encrypt_secret(Self::SEALED_CHECK, &vault.master_key)?;
         Ok(Self {
             salt_b64,
             accounts,
