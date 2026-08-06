@@ -7,7 +7,7 @@ description = "TOTP authenticator app"
 [package.metadata.bundle]
 name = "Factr"
 identifier = "factr-auth"
-icon = ["assets/icon/factr_icon.png"]
+icon = ["assets/icon/factr_icon.png", "assets/icon/factr_icon_win.svg"]
 category = "public.app-category.utilities"
 
 [dependencies]

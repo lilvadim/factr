@@ -12,10 +12,10 @@ jobs:
       matrix:
         configuration:
           [
-            { runner: "macos-15-intel", path: "target/release/bundle/dmg/Factr.dmg" },
-            { runner: "macos-15", path: "target/release/bundle/dmg/Factr.dmg" },
-            { runner: "windows-2022", path: "target/release/bundle/exe/*.exe" },
-            { runner: "ubuntu-latest", path: "target/release/bundle/appimage/*.AppImage" },
+            { runner: "macos-15-intel", format: "dmg", path: "target/release/bundle/dmg/Factr.dmg" },
+            { runner: "macos-15", format: "dmg", path: "target/release/bundle/dmg/Factr.dmg" },
+            { runner: "windows-2022", format: "exe", path: "target/release/bundle/exe/*.exe" },
+            { runner: "ubuntu-latest", format: "appimage", path: "target/release/bundle/appimage/*.AppImage" },
           ]
     runs-on: ${{ matrix.configuration.runner }}
     steps:
@@ -23,7 +23,7 @@ jobs:
       - name: Install Bundler
         run: cargo install cargo-bundle
       - name: Install Bundler
-        run: cargo bundle --release
+        run: cargo bundle --format ${{ matrix.configuration.format }} --release
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
