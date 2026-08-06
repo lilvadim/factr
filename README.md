@@ -1,10 +1,10 @@
-# Factr.
-
 <p align="center">
   <img src="img/factr_git_template.png" width="1280" alt="Скриншот">
 </p>
 
-Desktop OTP authenticator application.
+# Factr.
+
+Desktop 2FA TOTP authenticator application.
 
 ## Screenshot
 
