@@ -12,7 +12,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+      - uses: Swatinem/rust-cache@v2
       - name: Formatting
         run: cargo fmt --all -- --check
       - name: Clippy
