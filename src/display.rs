@@ -42,6 +42,7 @@ impl AccountDisplay {
 pub struct SettingsDisplay {
     pub close_after_copy: bool,
     pub always_on_top: bool,
+    pub toolbar_labels: bool,
 }
 
 impl SettingsDisplay {
@@ -49,6 +50,7 @@ impl SettingsDisplay {
         Self {
             close_after_copy: config.close_after_copy,
             always_on_top: config.always_on_top,
+            toolbar_labels: config.toolbar_labels,
         }
     }
 }

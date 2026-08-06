@@ -3,6 +3,7 @@ use crate::display::AccountDisplay;
 use crate::display::SettingsDisplay;
 use crate::display::VaultDisplay;
 use crate::encrypted_storage::Storage;
+use crate::phosphor;
 use crate::ui;
 use crate::vault;
 use crate::vault::VaultDecryptError;
@@ -13,6 +14,8 @@ use egui::DragValue;
 use egui::Frame;
 use egui::Id;
 use egui::Key;
+use egui::Response;
+use egui::Tooltip;
 use egui::Ui;
 use egui::ViewportCommand;
 use egui::Widget;
@@ -70,25 +73,25 @@ impl FactrApp {
             .insert(0, ibm_plex.to_owned());
 
         // Mono
-        let jet_brains_mono = "JetBrains Mono";
+        let ibm_plex_mono = "IBM Plex Mono";
         fonts.font_data.insert(
-            jet_brains_mono.to_owned(),
+            ibm_plex_mono.to_owned(),
             Arc::new(egui::FontData::from_static(include_bytes!(
-                "../assets/fonts/JetBrainsMono-VariableFont_wght.ttf"
+                "../assets/fonts/IBMPlexMono-Regular.ttf"
             ))),
         );
         fonts
             .families
             .get_mut(&egui::FontFamily::Monospace)
             .unwrap()
-            .insert(0, jet_brains_mono.to_owned());
+            .insert(0, ibm_plex_mono.to_owned());
 
         // Icons
         let phosphor = "Phosphor";
         fonts.font_data.insert(
             phosphor.to_owned(),
             Arc::new(egui::FontData::from_static(include_bytes!(
-                "../assets/fonts/Phosphor.ttf"
+                "../assets/fonts/Phosphor-Fill.ttf"
             ))),
         );
         fonts
@@ -287,17 +290,56 @@ impl FactrApp {
                 filter.request_focus();
                 self.display.search_focus = false;
             }
-            if ui.button(t!("lock-vault")).clicked() {
+            if Self::toolbar_button(
+                ui,
+                self.config.toolbar_labels,
+                phosphor::LOCK,
+                t!("lock-vault"),
+            )
+            .clicked()
+            {
                 actions.push(UiAction::LockVault);
             }
-            if ui.button(t!("add-code")).clicked() {
+            if Self::toolbar_button(
+                ui,
+                self.config.toolbar_labels,
+                phosphor::PLUS,
+                t!("add-code"),
+            )
+            .clicked()
+            {
                 self.display.add_ui = true;
             }
-            if ui.button(t!("settings-label")).clicked() {
+            if Self::toolbar_button(
+                ui,
+                self.config.toolbar_labels,
+                phosphor::GEAR,
+                t!("settings-label"),
+            )
+            .clicked()
+            {
                 self.display.settings_ui = true;
             }
         });
         actions
+    }
+
+    fn toolbar_button(
+        ui: &mut Ui,
+        show_label: bool,
+        icon: impl AsRef<str>,
+        label: impl AsRef<str>,
+    ) -> Response {
+        let btn = Button::new(if show_label {
+            format!("{} {}", icon.as_ref(), label.as_ref())
+        } else {
+            icon.as_ref().to_string()
+        })
+        .ui(ui);
+        if !show_label {
+            Tooltip::for_enabled(&btn).show(|ui| ui.label(label.as_ref()));
+        }
+        btn
     }
 
     fn display_settings(settings: &mut SettingsDisplay, ui: &mut Ui) -> Vec<UiAction> {
@@ -314,6 +356,12 @@ impl FactrApp {
             }
             if ui
                 .checkbox(&mut settings.always_on_top, t!("settings.always-on-top"))
+                .clicked()
+            {
+                actions.push(UiAction::UpdateConfiguration);
+            }
+            if ui
+                .checkbox(&mut settings.toolbar_labels, t!("settings.toolbar-labels"))
                 .clicked()
             {
                 actions.push(UiAction::UpdateConfiguration);
@@ -392,7 +440,7 @@ impl FactrApp {
             });
         } else {
             Frame::new().inner_margin(25.0).show(ui, |ui| {
-                ui.heading(t!("vault-locked"));
+                ui.heading(format!("{} {}", phosphor::VAULT, t!("vault-locked")));
                 ui.add_space(ui.spacing().item_spacing.y);
                 TextEdit::singleline(&mut self.display.password)
                     .hint_text(t!("enter-password"))
@@ -517,6 +565,7 @@ impl FactrApp {
                 if let Some(settings_display) = &self.display.settings_display {
                     self.config.close_after_copy = settings_display.close_after_copy;
                     self.config.always_on_top = settings_display.always_on_top;
+                    self.config.toolbar_labels = settings_display.toolbar_labels;
 
                     if self.config.always_on_top {
                         ctx.send_viewport_cmd(ViewportCommand::WindowLevel(

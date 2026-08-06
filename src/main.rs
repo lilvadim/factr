@@ -6,6 +6,7 @@ mod app;
 mod config;
 mod display;
 mod encrypted_storage;
+mod phosphor;
 mod ui;
 mod vault;
 

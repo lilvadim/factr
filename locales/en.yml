@@ -34,3 +34,4 @@ add:
 settings:
   close-after-copy: Close after Copy
   always-on-top: Always on Top
+  toolbar-labels: Show Labels on Toolbar Buttons

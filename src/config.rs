@@ -12,6 +12,7 @@ pub struct Config {
     pub storage_file: PathBuf,
     pub close_after_copy: bool,
     pub always_on_top: bool,
+    pub toolbar_labels: bool,
 }
 
 impl Default for Config {
@@ -20,6 +21,7 @@ impl Default for Config {
             storage_file: storage_default_path(),
             close_after_copy: false,
             always_on_top: false,
+            toolbar_labels: true,
         }
     }
 }

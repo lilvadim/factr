@@ -34,3 +34,4 @@ add:
 settings:
   close-after-copy: Закрыть после копирования
   always-on-top: Поверх всех окон
+  toolbar-labels: Показывать надписи на кнопках
