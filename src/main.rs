@@ -26,15 +26,14 @@ fn icon() -> egui::IconData {
 
 fn main() -> eframe::Result {
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
+    let viewport = egui::ViewportBuilder::default()
+        .with_app_id(config::APP_NAME)
+        .with_title("Factr.")
+        .with_icon(icon());
+    #[cfg(target_os = "macos")]
+    let viewport = viewport.with_titlebar_shown(false).with_title_shown(false);
     let options = eframe::NativeOptions {
-        // viewport: egui::ViewportBuilder::default()
-        //     .with_titlebar_shown(false)
-        //     .with_title_shown(false)
-        //     .with_fullsize_content_view(true),
-        viewport: egui::ViewportBuilder::default()
-            .with_app_id(config::APP_NAME)
-            .with_title("Factr.")
-            .with_icon(icon()),
+        viewport,
         persist_window: true,
         renderer: Renderer::Wgpu,
         ..Default::default()

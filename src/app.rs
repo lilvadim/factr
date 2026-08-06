@@ -40,9 +40,12 @@ impl eframe::App for FactrApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             self.ui(ui);
         });
-        let close_shortcut = ctx.input(|i| i.key_pressed(Key::W) && i.modifiers.mac_cmd);
-        if close_shortcut {
-            ctx.send_viewport_cmd(ViewportCommand::Close);
+        #[cfg(target_os = "macos")]
+        {
+            let close_shortcut = ctx.input(|i| i.key_pressed(Key::W) && i.modifiers.mac_cmd);
+            if close_shortcut {
+                ctx.send_viewport_cmd(ViewportCommand::Close);
+            }
         }
     }
 }
