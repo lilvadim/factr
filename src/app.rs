@@ -281,10 +281,12 @@ impl FactrApp {
             let filter = TextEdit::singleline(&mut self.display.filter_search)
                 .hint_text(format!("{}...", t!("filter-search")))
                 .ui(ui);
-            if self.display.search_focus {
+            if self.display.search_focus
+                || ui.input(|i| i.key_pressed(Key::F) && i.modifiers.command)
+            {
                 filter.request_focus();
+                self.display.search_focus = false;
             }
-            ui.add_space(ui.spacing().item_spacing.x);
             if ui.button(t!("lock-vault")).clicked() {
                 actions.push(UiAction::LockVault);
             }
@@ -343,8 +345,6 @@ impl FactrApp {
                     ui,
                 ));
             });
-
-        self.display.search_focus = !self.display.add_ui;
 
         if self.is_vault_unlocked() {
             if let Some(error) = &self.error {
@@ -451,6 +451,7 @@ impl FactrApp {
         match action {
             UiAction::UnlockVault => {
                 self.error = self.unlock_vault().err();
+                self.display.search_focus = true;
             }
             UiAction::LockVault => {
                 self.error = self.lock_vault().err();
@@ -459,7 +460,7 @@ impl FactrApp {
                 self.finish_setup();
             }
             UiAction::Add => {
-                let display = self.display.add_display.get_or_insert_default();
+                let display = self.display.add_display.as_mut().expect("No Add Input");
                 let account_result = match display.method {
                     AddMethod::ManualInput => {
                         let issuer = display.manual.issuer.to_owned();
@@ -497,6 +498,8 @@ impl FactrApp {
                 });
                 if result.is_ok() {
                     self.error = self.save_storage().err();
+                    self.display.add_ui = false;
+                    self.display.add_display = None;
                 } else {
                     display.error = result.err();
                 }
