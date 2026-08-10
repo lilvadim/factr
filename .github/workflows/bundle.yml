@@ -10,11 +10,10 @@ jobs:
   package_app:
     strategy:
       matrix:
-        configuration:
-          [
-            { runner: "macos-15-intel", format: "dmg", path: "target/release/bundle/dmg/Factr.dmg" },
-            { runner: "macos-15", format: "dmg", path: "target/release/bundle/dmg/Factr.dmg" },
-            { runner: "windows-2022", format: "exe", path: "target/release/bundle/exe/*.exe" },
+        configuration: [
+            # { runner: "macos-15-intel", format: "dmg", path: "target/release/bundle/dmg/Factr.dmg" },
+            { runner: "macos-15", format: "dmg", path: "target/release/bundle/dmg/*.dmg" },
+            # { runner: "windows-2022", format: "exe", path: "target/release/bundle/exe/*.exe" },
             { runner: "ubuntu-latest", format: "appimage", path: "target/release/bundle/appimage/*.AppImage" },
           ]
     runs-on: ${{ matrix.configuration.runner }}

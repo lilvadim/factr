@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use egui::ThemePreference;
 use serde::{Deserialize, Serialize};
 
 pub const APP_NAME: &str = "factr";
@@ -13,6 +14,7 @@ pub struct Config {
     pub close_after_copy: bool,
     pub always_on_top: bool,
     pub toolbar_labels: bool,
+    pub theme: ThemePreference,
 }
 
 impl Default for Config {
@@ -22,6 +24,7 @@ impl Default for Config {
             close_after_copy: false,
             always_on_top: false,
             toolbar_labels: true,
+            theme: ThemePreference::System,
         }
     }
 }

@@ -15,6 +15,7 @@ use egui::Frame;
 use egui::Id;
 use egui::Key;
 use egui::Response;
+use egui::ThemePreference;
 use egui::Tooltip;
 use egui::Ui;
 use egui::ViewportCommand;
@@ -30,6 +31,9 @@ use crate::{
     vault::{Account, Password, Vault},
 };
 
+#[cfg(target_os = "macos")]
+const TRAFFIC_LIGHTS_HEIGHT: f32 = 24.0;
+
 pub struct FactrApp {
     config: Config,
     display: AppDisplay,
@@ -41,6 +45,8 @@ pub struct FactrApp {
 impl eframe::App for FactrApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
+            #[cfg(target_os = "macos")]
+            ui.add_space(TRAFFIC_LIGHTS_HEIGHT);
             self.ui(ui);
         });
         #[cfg(target_os = "macos")]
@@ -366,6 +372,37 @@ impl FactrApp {
             {
                 actions.push(UiAction::UpdateConfiguration);
             }
+            ui.horizontal(|ui| {
+                ui.label(t!("settings.theme"));
+                let theme_text = |theme: &ThemePreference| match theme {
+                    ThemePreference::Dark => t!("settings.themes.dark"),
+                    ThemePreference::Light => t!("settings.themes.light"),
+                    ThemePreference::System => t!("settings.themes.system"),
+                };
+                let before = settings.theme;
+                ComboBox::from_id_salt(Id::new("settings.theme"))
+                    .selected_text(theme_text(&settings.theme))
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut settings.theme,
+                            ThemePreference::System,
+                            theme_text(&ThemePreference::System),
+                        );
+                        ui.selectable_value(
+                            &mut settings.theme,
+                            ThemePreference::Light,
+                            theme_text(&ThemePreference::Light),
+                        );
+                        ui.selectable_value(
+                            &mut settings.theme,
+                            ThemePreference::Dark,
+                            theme_text(&ThemePreference::Dark),
+                        );
+                    });
+                if before != settings.theme {
+                    actions.push(UiAction::UpdateConfiguration);
+                }
+            })
         });
         actions
     }
@@ -373,9 +410,19 @@ impl FactrApp {
     fn display_main(&mut self, ui: &mut Ui) -> Vec<UiAction> {
         let mut actions = Vec::new();
 
+        let content_rect = if cfg!(target_os = "macos") {
+            let min_y = ui.ctx().content_rect().min.y;
+            ui.ctx()
+                .content_rect()
+                .with_min_y(min_y + TRAFFIC_LIGHTS_HEIGHT)
+        } else {
+            ui.ctx().content_rect()
+        };
+
         Window::new(t!("add-code"))
             .collapsible(false)
             .open(&mut self.display.add_ui)
+            .constrain_to(content_rect)
             .show(ui.ctx(), |ui| {
                 actions.extend(Self::display_add(
                     self.display.add_display.get_or_insert_default(),
@@ -385,6 +432,7 @@ impl FactrApp {
         Window::new(t!("settings-label"))
             .collapsible(false)
             .open(&mut self.display.settings_ui)
+            .constrain_to(content_rect)
             .show(ui.ctx(), |ui| {
                 actions.extend(Self::display_settings(
                     self.display
@@ -566,6 +614,9 @@ impl FactrApp {
                     self.config.close_after_copy = settings_display.close_after_copy;
                     self.config.always_on_top = settings_display.always_on_top;
                     self.config.toolbar_labels = settings_display.toolbar_labels;
+                    self.config.theme = settings_display.theme;
+
+                    ctx.set_theme(self.config.theme);
 
                     if self.config.always_on_top {
                         ctx.send_viewport_cmd(ViewportCommand::WindowLevel(

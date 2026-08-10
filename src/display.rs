@@ -1,3 +1,5 @@
+use egui::ThemePreference;
+
 /// Displayable Data (View Model)
 use crate::{
     config::Config,
@@ -43,6 +45,7 @@ pub struct SettingsDisplay {
     pub close_after_copy: bool,
     pub always_on_top: bool,
     pub toolbar_labels: bool,
+    pub theme: ThemePreference,
 }
 
 impl SettingsDisplay {
@@ -51,6 +54,7 @@ impl SettingsDisplay {
             close_after_copy: config.close_after_copy,
             always_on_top: config.always_on_top,
             toolbar_labels: config.toolbar_labels,
+            theme: config.theme,
         }
     }
 }

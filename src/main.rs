@@ -32,7 +32,10 @@ fn main() -> eframe::Result {
         .with_title("Factr.")
         .with_icon(icon());
     #[cfg(target_os = "macos")]
-    let viewport = viewport.with_titlebar_shown(false).with_title_shown(false);
+    let viewport = viewport
+        .with_titlebar_shown(false)
+        .with_title_shown(false)
+        .with_fullsize_content_view(true);
     let options = eframe::NativeOptions {
         viewport,
         persist_window: true,
