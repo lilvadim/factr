@@ -17,8 +17,6 @@ Desktop 2FA TOTP authenticator application.
 
 ## Screenshots
 
-<p align="left">
-  <img src="docs/screenshot.png" width="900" alt="screenshot">
-  <img src="docs/screenshot_locked.png" width="900" alt="screenshot: vault locked">
-  <img src="docs/screenshot_all.png" width="900" alt="screenshot: all toggled">
-</p>
+![Screenshot](docs/screenshot.png)
+![Screenshot Locked](docs/screenshot_locked.png)
+![Screenshot All Windwos](docs/screenshot_all.png)
