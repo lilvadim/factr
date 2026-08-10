@@ -410,13 +410,15 @@ impl FactrApp {
     fn display_main(&mut self, ui: &mut Ui) -> Vec<UiAction> {
         let mut actions = Vec::new();
 
-        let content_rect = if cfg!(target_os = "macos") {
+        #[cfg(not(target_os = "macos"))]
+        let content_rect = ui.ctx().content_rect();
+
+        #[cfg(target_os = "macos")]
+        let content_rect = {
             let min_y = ui.ctx().content_rect().min.y;
             ui.ctx()
                 .content_rect()
                 .with_min_y(min_y + TRAFFIC_LIGHTS_HEIGHT)
-        } else {
-            ui.ctx().content_rect()
         };
 
         Window::new(t!("add-code"))
