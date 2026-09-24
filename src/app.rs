@@ -213,66 +213,12 @@ impl FactrApp {
                     .show(ui);
             }
             AddMethod::ManualInput => {
-                ui.horizontal(|ui| {
-                    ui.label(t!("account.issuer"));
-                    TextEdit::singleline(&mut display.manual.issuer)
-                        .hint_text(t!("account.issuer"))
-                        .ui(ui);
-                });
-                ui.horizontal(|ui| {
-                    ui.label(t!("account.name"));
-                    TextEdit::singleline(&mut display.manual.account_name)
-                        .hint_text(t!("account.name"))
-                        .ui(ui);
-                });
-                ui.horizontal(|ui| {
-                    ui.label(t!("account.secret"));
-                    TextEdit::singleline(&mut display.manual.secret)
-                        .hint_text(t!("account.secret"))
-                        .ui(ui);
-                });
-                ui.checkbox(
+                account_input_ui(
+                    &mut display.manual,
                     &mut display.extra_input,
-                    format!("{}...", t!("add.additional")),
+                    &mut display.manual_extra,
+                    ui,
                 );
-                if display.extra_input {
-                    let mut manual_extra = display.manual_extra.get_or_insert_default();
-                    if ui.button(t!("add.restore-defaults")).clicked() {
-                        manual_extra = display.manual_extra.insert(ManualInputExtra::default());
-                    }
-                    ui.horizontal(|ui| {
-                        ui.label(t!("account.algorithm"));
-                        ComboBox::from_id_salt(Id::new("manual_extra.algo"))
-                            .selected_text(manual_extra.algo.to_string())
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(
-                                    &mut manual_extra.algo,
-                                    Algorithm::SHA1,
-                                    Algorithm::SHA1.to_string(),
-                                );
-                                ui.selectable_value(
-                                    &mut manual_extra.algo,
-                                    Algorithm::SHA256,
-                                    Algorithm::SHA256.to_string(),
-                                );
-                                ui.selectable_value(
-                                    &mut manual_extra.algo,
-                                    Algorithm::SHA512,
-                                    Algorithm::SHA512.to_string(),
-                                );
-                            });
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label(t!("account.digits"));
-                        DragValue::new(&mut manual_extra.digits).range(6..=8).ui(ui);
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label(t!("account.period"));
-                        DragValue::new(&mut manual_extra.period)
-                            .range(5..=300)
-                            .ui(ui);
-                    });
-                }
             }
         }
         if let Some(error) = &display.error {
@@ -286,48 +232,114 @@ impl FactrApp {
 
     fn display_top_bar(&mut self, ui: &mut Ui) -> Vec<UiAction> {
         let mut actions = Vec::new();
-        ui.horizontal(|ui| {
-            let filter = TextEdit::singleline(&mut self.display.filter_search)
-                .hint_text(format!("{}...", t!("filter-search")))
-                .ui(ui);
-            if self.display.search_focus
-                || ui.input(|i| i.key_pressed(Key::F) && i.modifiers.command)
-            {
-                filter.request_focus();
-                self.display.search_focus = false;
-            }
-            if Self::toolbar_button(
-                ui,
-                self.config.toolbar_labels,
-                phosphor::LOCK,
-                t!("lock-vault"),
-            )
-            .clicked()
-            {
-                actions.push(UiAction::LockVault);
-            }
-            if Self::toolbar_button(
-                ui,
-                self.config.toolbar_labels,
-                phosphor::PLUS,
-                t!("add-code"),
-            )
-            .clicked()
-            {
-                self.display.add_ui = true;
-            }
-            if Self::toolbar_button(
-                ui,
-                self.config.toolbar_labels,
-                phosphor::GEAR,
-                t!("settings-label"),
-            )
-            .clicked()
-            {
-                self.display.settings_ui = true;
-            }
-        });
+        let button_group_width = self.toolbar_button_group_width(ui);
+        let min_search_width = 120.0;
+        let single_row = ui.available_width()
+            >= min_search_width + ui.spacing().item_spacing.x + button_group_width;
+
+        if single_row {
+            let search_width =
+                ui.available_width() - ui.spacing().item_spacing.x - button_group_width;
+            ui.horizontal(|ui| {
+                self.display_search(ui, search_width);
+                self.display_toolbar_buttons(ui, &mut actions);
+            });
+        } else {
+            self.display_search(ui, ui.available_width());
+            ui.horizontal_wrapped(|ui| {
+                self.display_toolbar_buttons(ui, &mut actions);
+            });
+        }
         actions
+    }
+
+    fn display_search(&mut self, ui: &mut Ui, width: f32) {
+        // These are TextEdit's default margins. `desired_width` excludes them.
+        let margin = egui::Margin::symmetric(4, 2);
+        let filter = TextEdit::singleline(&mut self.display.filter_search)
+            .hint_text(format!("{}...", t!("filter-search")))
+            .margin(margin)
+            .desired_width((width - margin.sum().x).max(0.0))
+            .ui(ui);
+        if self.display.search_focus || ui.input(|i| i.key_pressed(Key::F) && i.modifiers.command) {
+            filter.request_focus();
+            self.display.search_focus = false;
+        }
+    }
+
+    fn display_toolbar_buttons(&mut self, ui: &mut Ui, actions: &mut Vec<UiAction>) {
+        if Self::toolbar_button(
+            ui,
+            self.config.toolbar_labels,
+            phosphor::LOCK,
+            t!("lock-vault"),
+        )
+        .clicked()
+        {
+            actions.push(UiAction::LockVault);
+        }
+        if Self::toolbar_button(
+            ui,
+            self.config.toolbar_labels,
+            phosphor::PLUS,
+            t!("add-code"),
+        )
+        .clicked()
+        {
+            self.display.add_ui = true;
+        }
+        if Self::toolbar_button(
+            ui,
+            self.config.toolbar_labels,
+            phosphor::GEAR,
+            t!("settings-label"),
+        )
+        .clicked()
+        {
+            self.display.settings_ui = true;
+        }
+    }
+
+    fn toolbar_button_group_width(&self, ui: &Ui) -> f32 {
+        let cache_id =
+            ui.make_persistent_id(("toolbar-button-group-width", self.config.toolbar_labels));
+        if let Some(width) = ui.data(|data| data.get_temp::<f32>(cache_id)) {
+            return width;
+        }
+
+        let button_width =
+            |icon, label| Self::toolbar_button_width(ui, self.config.toolbar_labels, icon, label);
+        let width = button_width(phosphor::LOCK, t!("lock-vault"))
+            + button_width(phosphor::PLUS, t!("add-code"))
+            + button_width(phosphor::GEAR, t!("settings-label"))
+            + 2.0 * ui.spacing().item_spacing.x;
+
+        ui.data_mut(|data| data.insert_temp(cache_id, width));
+
+        width
+    }
+
+    fn toolbar_button_width(
+        ui: &Ui,
+        show_label: bool,
+        icon: impl AsRef<str>,
+        label: impl AsRef<str>,
+    ) -> f32 {
+        let text = if show_label {
+            format!("{} {}", icon.as_ref(), label.as_ref())
+        } else {
+            icon.as_ref().to_owned()
+        };
+        let text_width = ui
+            .painter()
+            .layout_no_wrap(
+                text,
+                egui::TextStyle::Button.resolve(ui.style()),
+                ui.visuals().text_color(),
+            )
+            .size()
+            .x;
+        (text_width + 2.0 * ui.spacing().button_padding.x).max(ui.spacing().interact_size.x)
     }
 
     fn toolbar_button(
@@ -410,48 +422,48 @@ impl FactrApp {
     fn display_main(&mut self, ui: &mut Ui) -> Vec<UiAction> {
         let mut actions = Vec::new();
 
-        #[cfg(not(target_os = "macos"))]
-        let content_rect = ui.ctx().content_rect();
-
-        #[cfg(target_os = "macos")]
-        let content_rect = {
-            let min_y = ui.ctx().content_rect().min.y;
-            ui.ctx()
-                .content_rect()
-                .with_min_y(min_y + TRAFFIC_LIGHTS_HEIGHT)
-        };
-
-        Window::new(t!("add-code"))
-            .collapsible(false)
-            .open(&mut self.display.add_ui)
-            .constrain_to(content_rect)
-            .show(ui.ctx(), |ui| {
-                actions.extend(Self::display_add(
-                    self.display.add_display.get_or_insert_default(),
-                    ui,
-                ));
-            });
-        Window::new(t!("settings-label"))
-            .collapsible(false)
-            .open(&mut self.display.settings_ui)
-            .constrain_to(content_rect)
-            .show(ui.ctx(), |ui| {
-                actions.extend(Self::display_settings(
-                    self.display
-                        .settings_display
-                        .get_or_insert(SettingsDisplay::from_config(&self.config)),
-                    ui,
-                ));
-            });
-
         if self.is_vault_unlocked() {
+            #[cfg(not(target_os = "macos"))]
+            let content_rect = ui.ctx().content_rect();
+
+            #[cfg(target_os = "macos")]
+            let content_rect = {
+                let min_y = ui.ctx().content_rect().min.y;
+                ui.ctx()
+                    .content_rect()
+                    .with_min_y(min_y + TRAFFIC_LIGHTS_HEIGHT)
+            };
+            Window::new(t!("add-code"))
+                .collapsible(false)
+                .open(&mut self.display.add_ui)
+                .constrain_to(content_rect)
+                .show(ui.ctx(), |ui| {
+                    actions.extend(Self::display_add(
+                        self.display.add_display.get_or_insert_default(),
+                        ui,
+                    ));
+                });
+            Window::new(t!("settings-label"))
+                .collapsible(false)
+                .open(&mut self.display.settings_ui)
+                .constrain_to(content_rect)
+                .show(ui.ctx(), |ui| {
+                    actions.extend(Self::display_settings(
+                        self.display
+                            .settings_display
+                            .get_or_insert(SettingsDisplay::from_config(&self.config)),
+                        ui,
+                    ));
+                });
+
             if let Some(error) = &self.error {
                 Self::display_error(ui, error);
             }
             actions.extend(self.display_top_bar(ui));
             ui.add_space(ui.spacing().item_spacing.y);
 
-            ui.horizontal_top(|ui| {
+            let item_spacing = ui.spacing().item_spacing;
+            egui::ScrollArea::vertical().show(ui, |ui| {
                 let mut accounts: Vec<_> = self
                     .vault
                     .as_ref()
@@ -473,20 +485,43 @@ impl FactrApp {
                 if !self.display.filter_search.is_empty() {
                     accounts.sort_by(|(_, a_rate, _), (_, b_rate, _)| b_rate.cmp(a_rate));
                 }
-                accounts.into_iter().for_each(|(i, _, acc)| {
-                    let response = ui::account_ui(ui, &acc);
-                    if response.clicked() {
-                        ui.ctx().copy_text(acc.code.to_owned());
-                        if self.config.close_after_copy {
-                            ui.ctx().send_viewport_cmd(ViewportCommand::Close);
-                        }
-                    }
-                    response.context_menu(|ui| {
-                        if ui.button(t!("delete")).clicked() {
-                            actions.push(UiAction::Delete(i));
+
+                let available_width = ui.available_width();
+                let max_columns = accounts.len().max(1);
+                let column_count = (((available_width + item_spacing.x)
+                    / (ui::ACCOUNT_CARD_MIN_WIDTH + item_spacing.x))
+                    .floor() as usize)
+                    .clamp(1, max_columns);
+                let card_width = (available_width
+                    - item_spacing.x * (column_count.saturating_sub(1) as f32))
+                    / column_count as f32;
+                let card_width = card_width.min(ui::ACCOUNT_CARD_MAX_WIDTH);
+                egui::Grid::new("account-codes-grid")
+                    .num_columns(column_count)
+                    .min_col_width(ui::ACCOUNT_CARD_MIN_WIDTH)
+                    .max_col_width(card_width)
+                    .min_row_height(ui::ACCOUNT_CARD_HEIGHT)
+                    .spacing(item_spacing)
+                    .show(ui, |ui| {
+                        for (position, (i, _, acc)) in accounts.into_iter().enumerate() {
+                            let response = ui::account_ui(ui, &acc, card_width);
+                            if response.clicked() {
+                                ui.ctx().copy_text(acc.code.to_owned());
+                                if self.config.close_after_copy {
+                                    ui.ctx().send_viewport_cmd(ViewportCommand::Close);
+                                }
+                            }
+                            response.context_menu(|ui| {
+                                // if ui.button(t!("edit")).clicked() { /* TODO */ }
+                                if ui.button(t!("delete")).clicked() {
+                                    actions.push(UiAction::Delete(i));
+                                }
+                            });
+                            if (position + 1) % column_count == 0 {
+                                ui.end_row();
+                            }
                         }
                     });
-                });
             });
         } else {
             Frame::new().inner_margin(25.0).show(ui, |ui| {
@@ -676,6 +711,71 @@ impl FactrApp {
     }
 }
 
+fn account_input_ui(
+    manual: &mut ManualInput,
+    extra_input: &mut bool,
+    extra: &mut Option<ManualInputExtra>,
+    ui: &mut Ui,
+) {
+    ui.horizontal(|ui| {
+        ui.label(t!("account.issuer"));
+        TextEdit::singleline(&mut manual.issuer)
+            .hint_text(t!("account.issuer"))
+            .ui(ui);
+    });
+    ui.horizontal(|ui| {
+        ui.label(t!("account.name"));
+        TextEdit::singleline(&mut manual.account_name)
+            .hint_text(t!("account.name"))
+            .ui(ui);
+    });
+    ui.horizontal(|ui| {
+        ui.label(t!("account.secret"));
+        TextEdit::singleline(&mut manual.secret)
+            .hint_text(t!("account.secret"))
+            .ui(ui);
+    });
+    ui.checkbox(extra_input, format!("{}...", t!("add.additional")));
+    if *extra_input {
+        let mut extra_input = extra.get_or_insert_default();
+        if ui.button(t!("add.restore-defaults")).clicked() {
+            extra_input = extra.insert(ManualInputExtra::default());
+        }
+        ui.horizontal(|ui| {
+            ui.label(t!("account.algorithm"));
+            ComboBox::from_id_salt(Id::new("manual_extra.algo"))
+                .selected_text(extra_input.algo.to_string())
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut extra_input.algo,
+                        Algorithm::SHA1,
+                        Algorithm::SHA1.to_string(),
+                    );
+                    ui.selectable_value(
+                        &mut extra_input.algo,
+                        Algorithm::SHA256,
+                        Algorithm::SHA256.to_string(),
+                    );
+                    ui.selectable_value(
+                        &mut extra_input.algo,
+                        Algorithm::SHA512,
+                        Algorithm::SHA512.to_string(),
+                    );
+                });
+        });
+        ui.horizontal(|ui| {
+            ui.label(t!("account.digits"));
+            DragValue::new(&mut extra_input.digits).range(6..=8).ui(ui);
+        });
+        ui.horizontal(|ui| {
+            ui.label(t!("account.period"));
+            DragValue::new(&mut extra_input.period)
+                .range(5..=300)
+                .ui(ui);
+        });
+    }
+}
+
 #[derive(Default)]
 struct AppDisplay {
     filter_search: String,
@@ -693,6 +793,13 @@ struct SetupDisplay {
     password: String,
     error: Option<String>,
 }
+
+// struct EditDisplay {
+//     input: ManualInput,
+//     extra_input: bool,
+//     manual_extra: Option<ManualInputExtra>,
+//     error: Option<String>,
+// }
 
 #[derive(Default)]
 struct AddDisplay {

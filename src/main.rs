@@ -30,7 +30,8 @@ fn main() -> eframe::Result {
     let viewport = egui::ViewportBuilder::default()
         .with_app_id(config::APP_NAME)
         .with_title("Factr.")
-        .with_icon(icon());
+        .with_icon(icon())
+        .with_min_inner_size([200.0, 200.0]);
     #[cfg(target_os = "macos")]
     let viewport = viewport
         .with_titlebar_shown(false)
