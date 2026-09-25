@@ -1,16 +1,14 @@
 use crate::config;
-use crate::display::AccountDisplay;
-use crate::display::SettingsDisplay;
-use crate::display::VaultDisplay;
 use crate::encrypted_storage::Storage;
 use crate::phosphor;
-use crate::ui;
-use crate::vault;
 use crate::vault::VaultDecryptError;
+use crate::view::model::{
+    AccountDisplay, AddDisplay, AddMethod, AppDisplay, SettingsDisplay, SetupDisplay, VaultDisplay,
+};
+use crate::view::widget;
 use std::{path::Path, sync::Arc};
 
 use egui::Button;
-use egui::DragValue;
 use egui::Frame;
 use egui::Id;
 use egui::Key;
@@ -24,7 +22,6 @@ use egui::Window;
 use egui::WindowLevel;
 use egui::{Color32, ComboBox, RichText, Stroke, TextEdit};
 use rust_i18n::t;
-use totp_rs::Algorithm;
 
 use crate::{
     config::Config,
@@ -188,39 +185,7 @@ impl FactrApp {
 
     fn display_add(display: &mut AddDisplay, ui: &mut Ui) -> Vec<UiAction> {
         let mut actions = Vec::new();
-        let method_name = |method: &AddMethod| match method {
-            AddMethod::OtpAuthUrl => "OTP Auth URL".to_string(),
-            AddMethod::ManualInput => t!("add.manual-input").to_string(),
-        };
-        ComboBox::from_label(t!("add.method"))
-            .selected_text(method_name(&display.method))
-            .show_ui(ui, |ui| {
-                ui.selectable_value(
-                    &mut display.method,
-                    AddMethod::OtpAuthUrl,
-                    method_name(&AddMethod::OtpAuthUrl),
-                );
-                ui.selectable_value(
-                    &mut display.method,
-                    AddMethod::ManualInput,
-                    method_name(&AddMethod::ManualInput),
-                );
-            });
-        match display.method {
-            AddMethod::OtpAuthUrl => {
-                TextEdit::singleline(&mut display.otp_auth_url)
-                    .hint_text(method_name(&display.method))
-                    .show(ui);
-            }
-            AddMethod::ManualInput => {
-                account_input_ui(
-                    &mut display.manual,
-                    &mut display.extra_input,
-                    &mut display.manual_extra,
-                    ui,
-                );
-            }
-        }
+        ui.add(widget::AccountAddForm::new(display));
         if let Some(error) = &display.error {
             Self::display_error(ui, error);
         }
@@ -489,22 +454,22 @@ impl FactrApp {
                 let available_width = ui.available_width();
                 let max_columns = accounts.len().max(1);
                 let column_count = (((available_width + item_spacing.x)
-                    / (ui::ACCOUNT_CARD_MIN_WIDTH + item_spacing.x))
+                    / (widget::AccountCodeCard::MIN_WIDTH + item_spacing.x))
                     .floor() as usize)
                     .clamp(1, max_columns);
                 let card_width = (available_width
                     - item_spacing.x * (column_count.saturating_sub(1) as f32))
                     / column_count as f32;
-                let card_width = card_width.min(ui::ACCOUNT_CARD_MAX_WIDTH);
+                let card_width = card_width.min(widget::AccountCodeCard::MAX_WIDTH);
                 egui::Grid::new("account-codes-grid")
                     .num_columns(column_count)
-                    .min_col_width(ui::ACCOUNT_CARD_MIN_WIDTH)
+                    .min_col_width(widget::AccountCodeCard::MIN_WIDTH)
                     .max_col_width(card_width)
-                    .min_row_height(ui::ACCOUNT_CARD_HEIGHT)
+                    .min_row_height(widget::AccountCodeCard::HEIGHT)
                     .spacing(item_spacing)
                     .show(ui, |ui| {
                         for (position, (i, _, acc)) in accounts.into_iter().enumerate() {
-                            let response = ui::account_ui(ui, &acc, card_width);
+                            let response = ui.add(widget::AccountCodeCard::new(&acc, card_width));
                             if response.clicked() {
                                 ui.ctx().copy_text(acc.code.to_owned());
                                 if self.config.close_after_copy {
@@ -711,113 +676,6 @@ impl FactrApp {
     }
 }
 
-fn account_input_ui(
-    manual: &mut ManualInput,
-    extra_input: &mut bool,
-    extra: &mut Option<ManualInputExtra>,
-    ui: &mut Ui,
-) {
-    ui.horizontal(|ui| {
-        ui.label(t!("account.issuer"));
-        TextEdit::singleline(&mut manual.issuer)
-            .hint_text(t!("account.issuer"))
-            .ui(ui);
-    });
-    ui.horizontal(|ui| {
-        ui.label(t!("account.name"));
-        TextEdit::singleline(&mut manual.account_name)
-            .hint_text(t!("account.name"))
-            .ui(ui);
-    });
-    ui.horizontal(|ui| {
-        ui.label(t!("account.secret"));
-        TextEdit::singleline(&mut manual.secret)
-            .hint_text(t!("account.secret"))
-            .ui(ui);
-    });
-    ui.checkbox(extra_input, format!("{}...", t!("add.additional")));
-    if *extra_input {
-        let mut extra_input = extra.get_or_insert_default();
-        if ui.button(t!("add.restore-defaults")).clicked() {
-            extra_input = extra.insert(ManualInputExtra::default());
-        }
-        ui.horizontal(|ui| {
-            ui.label(t!("account.algorithm"));
-            ComboBox::from_id_salt(Id::new("manual_extra.algo"))
-                .selected_text(extra_input.algo.to_string())
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut extra_input.algo,
-                        Algorithm::SHA1,
-                        Algorithm::SHA1.to_string(),
-                    );
-                    ui.selectable_value(
-                        &mut extra_input.algo,
-                        Algorithm::SHA256,
-                        Algorithm::SHA256.to_string(),
-                    );
-                    ui.selectable_value(
-                        &mut extra_input.algo,
-                        Algorithm::SHA512,
-                        Algorithm::SHA512.to_string(),
-                    );
-                });
-        });
-        ui.horizontal(|ui| {
-            ui.label(t!("account.digits"));
-            DragValue::new(&mut extra_input.digits).range(6..=8).ui(ui);
-        });
-        ui.horizontal(|ui| {
-            ui.label(t!("account.period"));
-            DragValue::new(&mut extra_input.period)
-                .range(5..=300)
-                .ui(ui);
-        });
-    }
-}
-
-#[derive(Default)]
-struct AppDisplay {
-    filter_search: String,
-    password: String,
-    setup_display: Option<SetupDisplay>,
-    add_ui: bool,
-    add_display: Option<AddDisplay>,
-    search_focus: bool,
-    settings_ui: bool,
-    settings_display: Option<SettingsDisplay>,
-}
-
-#[derive(Default)]
-struct SetupDisplay {
-    password: String,
-    error: Option<String>,
-}
-
-// struct EditDisplay {
-//     input: ManualInput,
-//     extra_input: bool,
-//     manual_extra: Option<ManualInputExtra>,
-//     error: Option<String>,
-// }
-
-#[derive(Default)]
-struct AddDisplay {
-    method: AddMethod,
-    otp_auth_url: String,
-    manual: ManualInput,
-    extra_input: bool,
-    manual_extra: Option<ManualInputExtra>,
-    error: Option<String>,
-}
-
-#[derive(PartialEq, Eq, Default)]
-enum AddMethod {
-    OtpAuthUrl,
-    #[default]
-    ManualInput,
-}
-
 enum UiAction {
     UnlockVault,
     LockVault,
@@ -825,29 +683,6 @@ enum UiAction {
     Add,
     Delete(usize),
     UpdateConfiguration,
-}
-
-#[derive(Default)]
-struct ManualInput {
-    issuer: String,
-    account_name: String,
-    secret: String,
-}
-
-struct ManualInputExtra {
-    algo: Algorithm,
-    period: u64,
-    digits: usize,
-}
-
-impl Default for ManualInputExtra {
-    fn default() -> Self {
-        Self {
-            algo: vault::DEFAULT_ALGO,
-            period: vault::DEFAULT_PERIOD,
-            digits: vault::DEFAULT_DIGITS,
-        }
-    }
 }
 
 fn is_initialized(storage_file: &Path) -> bool {
