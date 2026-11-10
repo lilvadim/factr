@@ -43,3 +43,10 @@ settings:
     dark: Темная
     light: Светлая
     system: Как в системе
+sort:
+  enable: Сортировать...
+  by: Сортировать по
+  name: Название
+  username: Имя пользователя
+  first-added: Дате добавления
+  last-modified: Дате изменения

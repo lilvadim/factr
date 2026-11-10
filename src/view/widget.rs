@@ -1,3 +1,4 @@
+use crate::phosphor;
 use egui::{
     ComboBox, DragValue, Frame, Id, Label, Response, RichText, Sense, TextEdit, Ui, UiBuilder,
     Widget, vec2,
@@ -5,7 +6,64 @@ use egui::{
 use rust_i18n::t;
 use totp_rs::Algorithm;
 
+use crate::config::{AccountSort, SortField};
 use crate::view::model::{AccountDisplay, AddDisplay, AddMethod, ManualInput, ManualInputExtra};
+
+pub struct AccountSortControl<'a>(pub &'a mut AccountSort);
+
+impl Widget for AccountSortControl<'_> {
+    fn ui(self, ui: &mut Ui) -> Response {
+        let sort = self.0;
+        let label = |field| match field {
+            SortField::Name => t!("sort.name"),
+            SortField::Username => t!("sort.username"),
+            SortField::FirstAdded => t!("sort.first-added"),
+            SortField::LastModified => t!("sort.last-modified"),
+        };
+        let mut controls = None;
+        let mut changed = false;
+        if sort.enabled {
+            let direction = ui.button(if sort.descending {
+                phosphor::ARROW_DOWN_RIGHT
+            } else {
+                phosphor::ARROW_UP_RIGHT
+            });
+            if direction.clicked() {
+                sort.descending = !sort.descending;
+                changed = true;
+            }
+            let field = ComboBox::from_id_salt("account-sort")
+                .selected_text(label(sort.field))
+                .show_ui(ui, |ui| {
+                    for field in [
+                        SortField::Name,
+                        SortField::Username,
+                        SortField::FirstAdded,
+                        SortField::LastModified,
+                    ] {
+                        changed |= ui
+                            .selectable_value(&mut sort.field, field, label(field))
+                            .changed();
+                    }
+                });
+            controls = Some(direction | field.response);
+        }
+        let text = if sort.enabled {
+            t!("sort.by")
+        } else {
+            t!("sort.enable")
+        };
+        let checkbox = ui.checkbox(&mut sort.enabled, text);
+        let mut response = match controls {
+            Some(controls) => checkbox | controls,
+            None => checkbox,
+        };
+        if changed {
+            response.mark_changed();
+        }
+        response
+    }
+}
 
 pub struct AccountCodeCard<'a> {
     account: &'a AccountDisplay,
@@ -25,7 +83,7 @@ impl<'a> AccountCodeCard<'a> {
 impl Widget for AccountCodeCard<'_> {
     fn ui(self, ui: &mut Ui) -> egui::Response {
         let response = ui
-            .scope_builder(UiBuilder::new().sense(Sense::click()), |ui| {
+            .scope_builder(UiBuilder::new().sense(Sense::click_and_drag()), |ui| {
                 let response = ui.response();
                 let visuals = ui.style().interact(&response);
 

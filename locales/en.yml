@@ -43,3 +43,10 @@ settings:
     dark: Dark
     light: Light
     system: System
+sort:
+  enable: Sort...
+  by: Sort by
+  name: Name
+  username: Username
+  first-added: First Added
+  last-modified: Last Modified

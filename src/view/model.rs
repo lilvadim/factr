@@ -1,8 +1,9 @@
 use egui::ThemePreference;
 use totp_rs::Algorithm;
+use uuid::Uuid;
 
 use crate::{
-    config::Config,
+    config::{AccountSort, Config},
     vault::{self, Account, Vault},
 };
 
@@ -23,6 +24,10 @@ impl VaultDisplay {
 }
 
 pub struct AccountDisplay {
+    pub id: Uuid,
+    pub created_at: i64,
+    pub modified_at: i64,
+    pub custom_position: usize,
     pub issuer: Option<String>,
     pub account_name: String,
     pub code: String,
@@ -33,6 +38,10 @@ impl AccountDisplay {
     pub fn from_account(account: &Account) -> Result<Self, String> {
         let (code, remaining_secs) = account.current_state()?;
         Ok(Self {
+            id: account.id,
+            created_at: account.created_at,
+            modified_at: account.modified_at,
+            custom_position: account.custom_position,
             issuer: account.totp.issuer.to_owned(),
             account_name: account.totp.account_name.to_owned(),
             code,
@@ -70,17 +79,18 @@ pub struct AppDisplay {
     pub settings_ui: bool,
     pub settings_display: Option<SettingsDisplay>,
     pub edit_display: Option<EditDisplay>,
+    pub sort: AccountSort,
 }
 
 pub struct EditDisplay {
-    pub index: usize,
+    pub id: Uuid,
     pub input: AddDisplay,
 }
 
 impl EditDisplay {
-    pub fn from_account(index: usize, account: &Account) -> Self {
+    pub fn from_account(account: &Account) -> Self {
         Self {
-            index,
+            id: account.id,
             input: AddDisplay {
                 manual: ManualInput {
                     issuer: account.totp.issuer.clone().unwrap_or_default(),
