@@ -119,10 +119,7 @@ impl FactrApp {
             is_initialized,
             vault: None,
             error: None,
-            display: AppDisplay {
-                sort: config.sort,
-                ..Default::default()
-            },
+            display: AppDisplay::default(),
             config,
         }
     }
@@ -540,19 +537,36 @@ impl FactrApp {
                                 .edit_display
                                 .as_ref()
                                 .is_some_and(|edit| edit.id == i);
+                            let draggable = !editing
+                                && !self.display.sort.enabled
+                                && self.display.filter_search.is_empty();
                             let response = ui
                                 .push_id(i, |ui| {
-                                    ui.add_enabled(
-                                        !editing,
-                                        widget::AccountCodeCard::new(&acc, card_width),
-                                    )
+                                    if draggable {
+                                        let id = ui.make_persistent_id("account-drag");
+                                        let source = ui.dnd_drag_source(id, i, |ui| {
+                                            ui.add(widget::AccountCodeCard::new(
+                                                &acc,
+                                                card_width,
+                                                Some(id),
+                                            ))
+                                        });
+                                        let response = ui.interact(
+                                            source.response.rect,
+                                            id,
+                                            egui::Sense::click_and_drag(),
+                                        );
+                                        source.inner | response
+                                    } else {
+                                        ui.add_enabled(
+                                            !editing,
+                                            widget::AccountCodeCard::new(&acc, card_width, None),
+                                        )
+                                    }
                                 })
-                                .inner;
-                            if !editing
-                                && !self.display.sort.enabled
-                                && self.display.filter_search.is_empty()
-                            {
-                                response.dnd_set_drag_payload(i);
+                                .inner
+                                .on_hover_cursor(egui::CursorIcon::PointingHand);
+                            if draggable {
                                 if let Some(source) = response.dnd_hover_payload::<Uuid>()
                                     && *source != i
                                 {

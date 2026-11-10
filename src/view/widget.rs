@@ -68,6 +68,7 @@ impl Widget for AccountSortControl<'_> {
 pub struct AccountCodeCard<'a> {
     account: &'a AccountDisplay,
     width: f32,
+    interaction_id: Option<Id>,
 }
 
 impl<'a> AccountCodeCard<'a> {
@@ -75,16 +76,23 @@ impl<'a> AccountCodeCard<'a> {
     pub const MAX_WIDTH: f32 = 300.0;
     pub const HEIGHT: f32 = 100.0;
 
-    pub fn new(account: &'a AccountDisplay, width: f32) -> Self {
-        Self { account, width }
+    pub fn new(account: &'a AccountDisplay, width: f32, interaction_id: Option<Id>) -> Self {
+        Self {
+            account,
+            width,
+            interaction_id,
+        }
     }
 }
 
 impl Widget for AccountCodeCard<'_> {
     fn ui(self, ui: &mut Ui) -> egui::Response {
         let response = ui
-            .scope_builder(UiBuilder::new().sense(Sense::click_and_drag()), |ui| {
-                let response = ui.response();
+            .scope_builder(UiBuilder::new().sense(Sense::click()), |ui| {
+                let response = self
+                    .interaction_id
+                    .and_then(|id| ui.ctx().read_response(id))
+                    .unwrap_or_else(|| ui.response());
                 let visuals = ui.style().interact(&response);
 
                 let frame = Frame::canvas(ui.style())
