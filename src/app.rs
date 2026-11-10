@@ -3,7 +3,8 @@ use crate::encrypted_storage::Storage;
 use crate::phosphor;
 use crate::vault::VaultDecryptError;
 use crate::view::model::{
-    AccountDisplay, AddDisplay, AddMethod, AppDisplay, SettingsDisplay, SetupDisplay, VaultDisplay,
+    AccountDisplay, AddDisplay, AppDisplay, EditDisplay, SettingsDisplay, SetupDisplay,
+    VaultDisplay,
 };
 use crate::view::widget;
 use std::{path::Path, sync::Arc};
@@ -25,7 +26,7 @@ use rust_i18n::t;
 
 use crate::{
     config::Config,
-    vault::{Account, Password, Vault},
+    vault::{Password, Vault},
 };
 
 #[cfg(target_os = "macos")]
@@ -125,6 +126,7 @@ impl FactrApp {
     fn lock_vault(&mut self) -> Result<(), String> {
         self.save_storage()?;
         let _ = self.vault.take();
+        self.display.edit_display = None;
         Ok(())
     }
 
@@ -421,6 +423,33 @@ impl FactrApp {
                     ));
                 });
 
+            if let Some(edit) = &mut self.display.edit_display {
+                let mut open = true;
+                Window::new(t!("edit"))
+                    .collapsible(false)
+                    .open(&mut open)
+                    .constrain_to(content_rect)
+                    .show(ui.ctx(), |ui| {
+                        ui.add(widget::AccountInputForm::new(
+                            &mut edit.input.manual,
+                            &mut edit.input.extra_input,
+                            &mut edit.input.manual_extra,
+                        ));
+                        if let Some(error) = &edit.input.error {
+                            Self::display_error(ui, error);
+                        }
+                        if ui.button(t!("save")).clicked() {
+                            actions.push(UiAction::SaveEdit);
+                        }
+                        if ui.button(t!("cancel")).clicked() {
+                            actions.push(UiAction::CancelEdit);
+                        }
+                    });
+                if !open {
+                    self.display.edit_display = None;
+                }
+            }
+
             if let Some(error) = &self.error {
                 Self::display_error(ui, error);
             }
@@ -469,7 +498,15 @@ impl FactrApp {
                     .spacing(item_spacing)
                     .show(ui, |ui| {
                         for (position, (i, _, acc)) in accounts.into_iter().enumerate() {
-                            let response = ui.add(widget::AccountCodeCard::new(&acc, card_width));
+                            let editing = self
+                                .display
+                                .edit_display
+                                .as_ref()
+                                .is_some_and(|edit| edit.index == i);
+                            let response = ui.add_enabled(
+                                !editing,
+                                widget::AccountCodeCard::new(&acc, card_width),
+                            );
                             if response.clicked() {
                                 ui.ctx().copy_text(acc.code.to_owned());
                                 if self.config.close_after_copy {
@@ -477,7 +514,10 @@ impl FactrApp {
                                 }
                             }
                             response.context_menu(|ui| {
-                                // if ui.button(t!("edit")).clicked() { /* TODO */ }
+                                if ui.button(t!("edit")).clicked() {
+                                    actions.push(UiAction::Edit(i));
+                                    ui.close();
+                                }
                                 if ui.button(t!("delete")).clicked() {
                                     actions.push(UiAction::Delete(i));
                                 }
@@ -559,35 +599,7 @@ impl FactrApp {
             }
             UiAction::Add => {
                 let display = self.display.add_display.as_mut().expect("No Add Input");
-                let account_result = match display.method {
-                    AddMethod::ManualInput => {
-                        let issuer = display.manual.issuer.to_owned();
-                        let issuer = if issuer.is_empty() {
-                            None
-                        } else {
-                            Some(issuer)
-                        };
-                        if display.extra_input
-                            && let Some(extra) = &display.manual_extra
-                        {
-                            Account::from_manual(
-                                issuer,
-                                display.manual.account_name.to_owned(),
-                                extra.algo,
-                                extra.digits,
-                                extra.period,
-                                display.manual.secret.to_owned(),
-                            )
-                        } else {
-                            Account::from_manual_with_defaults(
-                                issuer,
-                                display.manual.account_name.to_owned(),
-                                display.manual.secret.to_owned(),
-                            )
-                        }
-                    }
-                    AddMethod::OtpAuthUrl => Account::from_otp_auth_url(&display.otp_auth_url),
-                };
+                let account_result = display.to_account();
                 let result = account_result.and_then(|account| {
                     self.vault
                         .as_mut()
@@ -602,7 +614,49 @@ impl FactrApp {
                     display.error = result.err();
                 }
             }
+            UiAction::Edit(index) => {
+                if let Some(account) = self
+                    .vault
+                    .as_ref()
+                    .and_then(|vault| vault.accounts.get(index))
+                {
+                    self.display.edit_display = Some(EditDisplay::from_account(index, account));
+                }
+            }
+            UiAction::CancelEdit => self.display.edit_display = None,
+            UiAction::SaveEdit => {
+                let Some(edit) = &self.display.edit_display else {
+                    return;
+                };
+                let index = edit.index;
+                let result = edit.input.to_account().and_then(|account| {
+                    let vault = self.vault.as_mut().ok_or("No Vault".to_string())?;
+                    let slot = vault
+                        .accounts
+                        .get_mut(index)
+                        .ok_or("No Account".to_string())?;
+                    let previous = std::mem::replace(slot, account);
+                    if let Err(error) = self.save_storage() {
+                        self.vault.as_mut().unwrap().accounts[index] = previous;
+                        return Err(error);
+                    }
+                    Ok(())
+                });
+                match result {
+                    Ok(()) => self.display.edit_display = None,
+                    Err(error) => {
+                        self.display.edit_display.as_mut().unwrap().input.error = Some(error)
+                    }
+                }
+            }
             UiAction::Delete(idx) => {
+                if let Some(edit) = &mut self.display.edit_display {
+                    if edit.index == idx {
+                        self.display.edit_display = None;
+                    } else if edit.index > idx {
+                        edit.index -= 1;
+                    }
+                }
                 self.error = self
                     .vault
                     .as_mut()
@@ -677,6 +731,9 @@ impl FactrApp {
 }
 
 enum UiAction {
+    Edit(usize),
+    SaveEdit,
+    CancelEdit,
     UnlockVault,
     LockVault,
     Setup,

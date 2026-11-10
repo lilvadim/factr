@@ -5,6 +5,9 @@ lock-vault: Заблокировать
 add-code: Добавить код
 settings-label: Настройки
 delete: Удалить
+edit: Редактировать
+save: Сохранить
+cancel: Отмена
 vault-locked: Хранилище заблокировано
 enter-password: Введите пароль
 unlock-vault: Разблокировать хранилище

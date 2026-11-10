@@ -60,7 +60,7 @@ impl SettingsDisplay {
 }
 
 #[derive(Default)]
-pub(crate) struct AppDisplay {
+pub struct AppDisplay {
     pub filter_search: String,
     pub password: String,
     pub setup_display: Option<SetupDisplay>,
@@ -69,6 +69,61 @@ pub(crate) struct AppDisplay {
     pub search_focus: bool,
     pub settings_ui: bool,
     pub settings_display: Option<SettingsDisplay>,
+    pub edit_display: Option<EditDisplay>,
+}
+
+pub struct EditDisplay {
+    pub index: usize,
+    pub input: AddDisplay,
+}
+
+impl EditDisplay {
+    pub fn from_account(index: usize, account: &Account) -> Self {
+        Self {
+            index,
+            input: AddDisplay {
+                manual: ManualInput {
+                    issuer: account.totp.issuer.clone().unwrap_or_default(),
+                    account_name: account.totp.account_name.clone(),
+                    secret: account.totp.get_secret_base32(),
+                },
+                extra_input: true,
+                manual_extra: Some(ManualInputExtra {
+                    algo: account.totp.algorithm,
+                    digits: account.totp.digits,
+                    period: account.totp.step,
+                }),
+                ..Default::default()
+            },
+        }
+    }
+}
+
+impl AddDisplay {
+    pub fn to_account(&self) -> Result<Account, String> {
+        if self.method == AddMethod::OtpAuthUrl {
+            return Account::from_otp_auth_url(&self.otp_auth_url);
+        }
+        let issuer = (!self.manual.issuer.is_empty()).then(|| self.manual.issuer.clone());
+        if self.extra_input
+            && let Some(extra) = &self.manual_extra
+        {
+            Account::from_manual(
+                issuer,
+                self.manual.account_name.clone(),
+                extra.algo,
+                extra.digits,
+                extra.period,
+                self.manual.secret.clone(),
+            )
+        } else {
+            Account::from_manual_with_defaults(
+                issuer,
+                self.manual.account_name.clone(),
+                self.manual.secret.clone(),
+            )
+        }
+    }
 }
 
 #[derive(Default)]
