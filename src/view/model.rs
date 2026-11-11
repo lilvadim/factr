@@ -74,7 +74,7 @@ pub struct AppDisplay {
     pub password: String,
     pub setup_display: Option<SetupDisplay>,
     pub add_ui: bool,
-    pub add_display: Option<AddDisplay>,
+    pub add_display: Option<AccountFieldsDisplay>,
     pub search_focus: bool,
     pub settings_ui: bool,
     pub settings_display: Option<SettingsDisplay>,
@@ -82,16 +82,16 @@ pub struct AppDisplay {
     pub sort: AccountSort,
 }
 
-pub struct EditDisplay {
+pub(crate) struct EditDisplay {
     pub id: Uuid,
-    pub input: AddDisplay,
+    pub input: AccountFieldsDisplay,
 }
 
 impl EditDisplay {
     pub fn from_account(account: &Account) -> Self {
         Self {
             id: account.id,
-            input: AddDisplay {
+            input: AccountFieldsDisplay {
                 manual: ManualInput {
                     issuer: account.totp.issuer.clone().unwrap_or_default(),
                     account_name: account.totp.account_name.clone(),
@@ -109,10 +109,10 @@ impl EditDisplay {
     }
 }
 
-impl AddDisplay {
-    pub fn to_account(&self) -> Result<Account, String> {
+impl AccountFieldsDisplay {
+    pub fn to_account(&self, position: usize) -> Result<Account, String> {
         if self.method == AddMethod::OtpAuthUrl {
-            return Account::from_otp_auth_url(&self.otp_auth_url);
+            return Account::from_otp_auth_url(&self.otp_auth_url, position);
         }
         let issuer = (!self.manual.issuer.is_empty()).then(|| self.manual.issuer.clone());
         if self.extra_input
@@ -125,12 +125,14 @@ impl AddDisplay {
                 extra.digits,
                 extra.period,
                 self.manual.secret.clone(),
+                position,
             )
         } else {
             Account::from_manual_with_defaults(
                 issuer,
                 self.manual.account_name.clone(),
                 self.manual.secret.clone(),
+                position,
             )
         }
     }
@@ -143,7 +145,7 @@ pub(crate) struct SetupDisplay {
 }
 
 #[derive(Default)]
-pub(crate) struct AddDisplay {
+pub(crate) struct AccountFieldsDisplay {
     pub method: AddMethod,
     pub otp_auth_url: String,
     pub manual: ManualInput,

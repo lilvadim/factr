@@ -7,7 +7,9 @@ use rust_i18n::t;
 use totp_rs::Algorithm;
 
 use crate::config::{AccountSort, SortField};
-use crate::view::model::{AccountDisplay, AddDisplay, AddMethod, ManualInput, ManualInputExtra};
+use crate::view::model::{
+    AccountDisplay, AccountFieldsDisplay, AddMethod, ManualInput, ManualInputExtra,
+};
 
 pub struct AccountSortControl<'a>(pub &'a mut AccountSort);
 
@@ -223,11 +225,11 @@ impl Widget for AccountInputForm<'_> {
 }
 
 pub(crate) struct AccountAddForm<'a> {
-    display: &'a mut AddDisplay,
+    display: &'a mut AccountFieldsDisplay,
 }
 
 impl<'a> AccountAddForm<'a> {
-    pub fn new(display: &'a mut AddDisplay) -> Self {
+    pub fn new(display: &'a mut AccountFieldsDisplay) -> Self {
         Self { display }
     }
 }

@@ -59,19 +59,20 @@ pub struct Account {
 }
 
 impl Account {
-    fn new(totp: TOTP) -> Self {
+    fn new(totp: TOTP, custom_position: usize) -> Self {
         let now = chrono::Utc::now().timestamp_millis();
         Self {
             id: Uuid::new_v4(),
             totp,
             created_at: now,
             modified_at: now,
-            custom_position: 0,
+            custom_position,
         }
     }
-    pub fn from_otp_auth_url(otp_auth_url: &str) -> Result<Self, String> {
+    pub fn from_otp_auth_url(otp_auth_url: &str, position: usize) -> Result<Self, String> {
         Ok(Self::new(
             TOTP::from_url(otp_auth_url).map_err(|e| format!("TOTP URL Init Error: {e}"))?,
+            position,
         ))
     }
 
@@ -79,6 +80,7 @@ impl Account {
         issuer: Option<String>,
         account_name: String,
         secret: String,
+        position: usize,
     ) -> Result<Self, String> {
         Self::from_manual(
             issuer,
@@ -87,6 +89,7 @@ impl Account {
             DEFAULT_DIGITS,
             DEFAULT_PERIOD,
             secret,
+            position,
         )
     }
 
@@ -97,12 +100,13 @@ impl Account {
         digits: usize,
         period: u64,
         secret_b32: String,
+        position: usize,
     ) -> Result<Self, String> {
         let secret = Secret::Encoded(secret_b32)
             .to_bytes()
             .map_err(|e| format!("Wrong Secret: {e}"))?;
         let totp = init_totp(issuer, account_name, algo, digits, period, secret)?;
-        Ok(Self::new(totp))
+        Ok(Self::new(totp, position))
     }
 
     pub fn decrypted(

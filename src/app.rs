@@ -3,7 +3,7 @@ use crate::encrypted_storage::Storage;
 use crate::phosphor;
 use crate::vault::VaultDecryptError;
 use crate::view::model::{
-    AccountDisplay, AddDisplay, AppDisplay, EditDisplay, SettingsDisplay, SetupDisplay,
+    AccountDisplay, AccountFieldsDisplay, AppDisplay, EditDisplay, SettingsDisplay, SetupDisplay,
     VaultDisplay,
 };
 use crate::view::widget;
@@ -186,7 +186,7 @@ impl FactrApp {
         }
     }
 
-    fn display_add(display: &mut AddDisplay, ui: &mut Ui) -> Vec<UiAction> {
+    fn display_add(display: &mut AccountFieldsDisplay, ui: &mut Ui) -> Vec<UiAction> {
         let mut actions = Vec::new();
         ui.add(widget::AccountAddForm::new(display));
         if let Some(error) = &display.error {
@@ -681,17 +681,16 @@ impl FactrApp {
             }
             UiAction::Add => {
                 let display = self.display.add_display.as_mut().expect("No Add Input");
-                let account_result = display.to_account();
-                let result = account_result.and_then(|account| {
-                    self.vault
-                        .as_mut()
-                        .map(|vault| {
-                            let mut account = account;
-                            account.custom_position = vault.accounts.len();
-                            vault.accounts.push(account);
-                        })
-                        .ok_or("No Vault".to_string())
-                });
+                let result = self
+                    .vault
+                    .as_mut()
+                    .ok_or("No Vault".to_string())
+                    .and_then(|vault| {
+                        let account = display.to_account(vault.accounts.len())?;
+                        vault.accounts.push(account);
+                        Ok(())
+                    });
+
                 if result.is_ok() {
                     self.error = self.save_storage().err();
                     self.display.add_ui = false;
@@ -715,29 +714,40 @@ impl FactrApp {
                     return;
                 };
                 let id = edit.id;
-                let result = edit.input.to_account().and_then(|mut account| {
-                    let vault = self.vault.as_mut().ok_or("No Vault".to_string())?;
-                    let index = vault
-                        .accounts
-                        .iter()
-                        .position(|account| account.id == id)
-                        .ok_or("No Account".to_string())?;
-                    let slot = &mut vault.accounts[index];
-                    account.id = slot.id;
-                    account.created_at = slot.created_at;
-                    account.custom_position = slot.custom_position;
-                    account.modified_at = if account.totp == slot.totp {
-                        slot.modified_at
-                    } else {
-                        chrono::Utc::now().timestamp_millis()
-                    };
-                    let previous = std::mem::replace(slot, account);
-                    if let Err(error) = self.save_storage() {
-                        self.vault.as_mut().unwrap().accounts[index] = previous;
-                        return Err(error);
-                    }
-                    Ok(())
-                });
+                let result = self
+                    .vault
+                    .as_ref()
+                    .ok_or("No Vault".to_string())
+                    .and_then(|vault| {
+                        vault
+                            .accounts
+                            .iter()
+                            .find(|account| account.id == id)
+                            .ok_or("No Account".to_string())
+                    })
+                    .and_then(|account| edit.input.to_account(account.custom_position))
+                    .and_then(|mut edited_account| {
+                        let vault = self.vault.as_mut().ok_or("No Vault".to_string())?;
+                        let index = vault
+                            .accounts
+                            .iter()
+                            .position(|account| account.id == id)
+                            .ok_or("No Account".to_string())?;
+                        let editable = &mut vault.accounts[index];
+                        edited_account.id = editable.id;
+                        edited_account.created_at = editable.created_at;
+                        edited_account.modified_at = if edited_account.totp == editable.totp {
+                            editable.modified_at
+                        } else {
+                            chrono::Utc::now().timestamp_millis()
+                        };
+                        let old = std::mem::replace(editable, edited_account);
+                        if let Err(error) = self.save_storage() {
+                            self.vault.as_mut().unwrap().accounts[index] = old;
+                            return Err(error);
+                        }
+                        Ok(())
+                    });
                 match result {
                     Ok(()) => self.display.edit_display = None,
                     Err(error) => {
@@ -746,16 +756,17 @@ impl FactrApp {
                 }
             }
             UiAction::MoveAccount(source, target) => {
-                if self.display.sort.enabled
+                let move_unavailable = self.display.sort.enabled
                     || !self.display.filter_search.is_empty()
-                    || source == target
-                {
+                    || source == target;
+                if move_unavailable {
                     return;
                 }
                 let Some(vault) = &mut self.vault else {
                     return;
                 };
-                let previous: Vec<_> = vault.accounts.iter().map(|a| a.custom_position).collect();
+                let original_layout_positions: Vec<_> =
+                    vault.accounts.iter().map(|a| a.custom_position).collect();
                 let Some(from) = vault
                     .accounts
                     .iter()
@@ -789,7 +800,7 @@ impl FactrApp {
                         .unwrap()
                         .accounts
                         .iter_mut()
-                        .zip(previous)
+                        .zip(original_layout_positions)
                     {
                         account.custom_position = position;
                     }
