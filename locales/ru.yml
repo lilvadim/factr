@@ -5,6 +5,9 @@ lock-vault: Заблокировать
 add-code: Добавить код
 settings-label: Настройки
 delete: Удалить
+edit: Редактировать
+save: Сохранить
+cancel: Отмена
 vault-locked: Хранилище заблокировано
 enter-password: Введите пароль
 unlock-vault: Разблокировать хранилище
@@ -40,3 +43,10 @@ settings:
     dark: Темная
     light: Светлая
     system: Как в системе
+sort:
+  enable: Сортировать...
+  by: Сортировать по
+  name: Название
+  username: Имя пользователя
+  first-added: Дате добавления
+  last-modified: Дате изменения

@@ -3,10 +3,12 @@ use crate::encrypted_storage::Storage;
 use crate::phosphor;
 use crate::vault::VaultDecryptError;
 use crate::view::model::{
-    AccountDisplay, AddDisplay, AddMethod, AppDisplay, SettingsDisplay, SetupDisplay, VaultDisplay,
+    AccountDisplay, AccountFieldsDisplay, AppDisplay, EditDisplay, SettingsDisplay, SetupDisplay,
+    VaultDisplay,
 };
 use crate::view::widget;
 use std::{path::Path, sync::Arc};
+use uuid::Uuid;
 
 use egui::Button;
 use egui::Frame;
@@ -25,7 +27,7 @@ use rust_i18n::t;
 
 use crate::{
     config::Config,
-    vault::{Account, Password, Vault},
+    vault::{Password, Vault},
 };
 
 #[cfg(target_os = "macos")]
@@ -125,6 +127,7 @@ impl FactrApp {
     fn lock_vault(&mut self) -> Result<(), String> {
         self.save_storage()?;
         let _ = self.vault.take();
+        self.display.edit_display = None;
         Ok(())
     }
 
@@ -183,7 +186,7 @@ impl FactrApp {
         }
     }
 
-    fn display_add(display: &mut AddDisplay, ui: &mut Ui) -> Vec<UiAction> {
+    fn display_add(display: &mut AccountFieldsDisplay, ui: &mut Ui) -> Vec<UiAction> {
         let mut actions = Vec::new();
         ui.add(widget::AccountAddForm::new(display));
         if let Some(error) = &display.error {
@@ -198,33 +201,46 @@ impl FactrApp {
     fn display_top_bar(&mut self, ui: &mut Ui) -> Vec<UiAction> {
         let mut actions = Vec::new();
         let button_group_width = self.toolbar_button_group_width(ui);
+        let sort_width = widget::AccountSortControl(&mut self.display.sort).width(ui);
         let min_search_width = 120.0;
         let single_row = ui.available_width()
-            >= min_search_width + ui.spacing().item_spacing.x + button_group_width;
+            >= min_search_width
+                + 2.0 * ui.spacing().item_spacing.x
+                + sort_width
+                + button_group_width;
 
         if single_row {
-            let search_width =
-                ui.available_width() - ui.spacing().item_spacing.x - button_group_width;
-            ui.horizontal(|ui| {
-                self.display_search(ui, search_width);
-                self.display_toolbar_buttons(ui, &mut actions);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                ui.horizontal(|ui| {
+                    self.display_toolbar_buttons(ui, &mut actions);
+                    if ui
+                        .add(widget::AccountSortControl(&mut self.display.sort))
+                        .changed()
+                    {
+                        actions.push(UiAction::UpdateConfiguration);
+                    }
+                    self.display_search(ui);
+                });
             });
         } else {
-            self.display_search(ui, ui.available_width());
+            self.display_search(ui);
             ui.horizontal_wrapped(|ui| {
+                if ui
+                    .add(widget::AccountSortControl(&mut self.display.sort))
+                    .changed()
+                {
+                    actions.push(UiAction::UpdateConfiguration);
+                }
                 self.display_toolbar_buttons(ui, &mut actions);
             });
         }
         actions
     }
 
-    fn display_search(&mut self, ui: &mut Ui, width: f32) {
-        // These are TextEdit's default margins. `desired_width` excludes them.
-        let margin = egui::Margin::symmetric(4, 2);
+    fn display_search(&mut self, ui: &mut Ui) {
         let filter = TextEdit::singleline(&mut self.display.filter_search)
             .hint_text(format!("{}...", t!("filter-search")))
-            .margin(margin)
-            .desired_width((width - margin.sum().x).max(0.0))
+            .desired_width(f32::INFINITY)
             .ui(ui);
         if self.display.search_focus || ui.input(|i| i.key_pressed(Key::F) && i.modifiers.command) {
             filter.request_focus();
@@ -233,35 +249,23 @@ impl FactrApp {
     }
 
     fn display_toolbar_buttons(&mut self, ui: &mut Ui, actions: &mut Vec<UiAction>) {
-        if Self::toolbar_button(
-            ui,
-            self.config.toolbar_labels,
-            phosphor::LOCK,
-            t!("lock-vault"),
-        )
-        .clicked()
-        {
-            actions.push(UiAction::LockVault);
+        let mut buttons = [
+            (phosphor::LOCK, t!("lock-vault")),
+            (phosphor::PLUS, t!("add-code")),
+            (phosphor::GEAR, t!("settings-label")),
+        ];
+        if ui.layout().main_dir() == egui::Direction::RightToLeft {
+            buttons.reverse();
         }
-        if Self::toolbar_button(
-            ui,
-            self.config.toolbar_labels,
-            phosphor::PLUS,
-            t!("add-code"),
-        )
-        .clicked()
-        {
-            self.display.add_ui = true;
-        }
-        if Self::toolbar_button(
-            ui,
-            self.config.toolbar_labels,
-            phosphor::GEAR,
-            t!("settings-label"),
-        )
-        .clicked()
-        {
-            self.display.settings_ui = true;
+        for (icon, label) in buttons {
+            if Self::toolbar_button(ui, self.config.toolbar_labels, icon, label).clicked() {
+                match icon {
+                    phosphor::LOCK => actions.push(UiAction::LockVault),
+                    phosphor::PLUS => self.display.add_ui = true,
+                    phosphor::GEAR => self.display.settings_ui = true,
+                    _ => unreachable!(),
+                }
+            }
         }
     }
 
@@ -398,21 +402,32 @@ impl FactrApp {
                     .content_rect()
                     .with_min_y(min_y + TRAFFIC_LIGHTS_HEIGHT)
             };
+            let mut close_add = false;
             Window::new(t!("add-code"))
-                .collapsible(false)
+                .title_bar(false)
                 .open(&mut self.display.add_ui)
                 .constrain_to(content_rect)
                 .show(ui.ctx(), |ui| {
+                    close_add = ui
+                        .add(widget::InnerWindowHeader::new(&t!("add-code")))
+                        .clicked();
                     actions.extend(Self::display_add(
                         self.display.add_display.get_or_insert_default(),
                         ui,
                     ));
                 });
+            if close_add {
+                self.display.add_ui = false;
+            }
+            let mut close_settings = false;
             Window::new(t!("settings-label"))
-                .collapsible(false)
+                .title_bar(false)
                 .open(&mut self.display.settings_ui)
                 .constrain_to(content_rect)
                 .show(ui.ctx(), |ui| {
+                    close_settings = ui
+                        .add(widget::InnerWindowHeader::new(&t!("settings-label")))
+                        .clicked();
                     actions.extend(Self::display_settings(
                         self.display
                             .settings_display
@@ -420,6 +435,40 @@ impl FactrApp {
                         ui,
                     ));
                 });
+            if close_settings {
+                self.display.settings_ui = false;
+            }
+
+            if let Some(edit) = &mut self.display.edit_display {
+                let mut open = true;
+                let mut close_edit = false;
+                Window::new(t!("edit"))
+                    .title_bar(false)
+                    .open(&mut open)
+                    .constrain_to(content_rect)
+                    .show(ui.ctx(), |ui| {
+                        close_edit = ui
+                            .add(widget::InnerWindowHeader::new(&t!("edit")))
+                            .clicked();
+                        ui.add(widget::AccountInputForm::new(
+                            &mut edit.input.manual,
+                            &mut edit.input.extra_input,
+                            &mut edit.input.manual_extra,
+                        ));
+                        if let Some(error) = &edit.input.error {
+                            Self::display_error(ui, error);
+                        }
+                        if ui.button(t!("save")).clicked() {
+                            actions.push(UiAction::SaveEdit);
+                        }
+                        if ui.button(t!("cancel")).clicked() {
+                            actions.push(UiAction::CancelEdit);
+                        }
+                    });
+                if !open || close_edit {
+                    self.display.edit_display = None;
+                }
+            }
 
             if let Some(error) = &self.error {
                 Self::display_error(ui, error);
@@ -427,7 +476,7 @@ impl FactrApp {
             actions.extend(self.display_top_bar(ui));
             ui.add_space(ui.spacing().item_spacing.y);
 
-            let item_spacing = ui.spacing().item_spacing;
+            let item_spacing = egui::Vec2::splat(ui.spacing().item_spacing.x);
             egui::ScrollArea::vertical().show(ui, |ui| {
                 let mut accounts: Vec<_> = self
                     .vault
@@ -437,18 +486,50 @@ impl FactrApp {
                     .expect("Cannot display")
                     .accounts
                     .into_iter()
-                    .enumerate()
-                    .map(|(i, acc)| {
-                        (
-                            i,
-                            Self::filter_search_rate(&acc, &self.display.filter_search),
-                            acc,
-                        )
-                    })
-                    .filter(|(_i, rate, _acc)| *rate > 0)
+                    .map(|account| (account.id, account))
                     .collect();
-                if !self.display.filter_search.is_empty() {
-                    accounts.sort_by(|(_, a_rate, _), (_, b_rate, _)| b_rate.cmp(a_rate));
+                if self.display.sort.enabled {
+                    use crate::config::SortField;
+                    let query = self.display.filter_search.to_lowercase();
+                    if !query.is_empty() {
+                        accounts.retain(|(_, account)| {
+                            account
+                                .issuer
+                                .as_ref()
+                                .is_some_and(|issuer| issuer.to_lowercase().contains(&query))
+                                || account.account_name.to_lowercase().contains(&query)
+                        });
+                    }
+                    accounts.sort_by(|(_, a), (_, b)| {
+                        let order = match self.display.sort.field {
+                            SortField::Name => a.issuer.cmp(&b.issuer),
+                            SortField::Username => a.account_name.cmp(&b.account_name),
+                            SortField::FirstAdded => a.created_at.cmp(&b.created_at),
+                            SortField::LastModified => a.modified_at.cmp(&b.modified_at),
+                        };
+                        if self.display.sort.descending {
+                            order.reverse()
+                        } else {
+                            order
+                        }
+                    });
+                } else if !self.display.filter_search.is_empty() {
+                    let mut ranked: Vec<_> = accounts
+                        .into_iter()
+                        .map(|(i, account)| {
+                            let rate =
+                                Self::filter_search_rate(&account, &self.display.filter_search);
+                            (i, rate, account)
+                        })
+                        .filter(|(_, rate, _)| *rate > 0)
+                        .collect();
+                    ranked.sort_by(|(_, a_rate, _), (_, b_rate, _)| b_rate.cmp(a_rate));
+                    accounts = ranked
+                        .into_iter()
+                        .map(|(i, _, account)| (i, account))
+                        .collect();
+                } else {
+                    accounts.sort_by_key(|(_, acc)| acc.custom_position);
                 }
 
                 let available_width = ui.available_width();
@@ -468,8 +549,64 @@ impl FactrApp {
                     .min_row_height(widget::AccountCodeCard::HEIGHT)
                     .spacing(item_spacing)
                     .show(ui, |ui| {
-                        for (position, (i, _, acc)) in accounts.into_iter().enumerate() {
-                            let response = ui.add(widget::AccountCodeCard::new(&acc, card_width));
+                        for (position, (i, acc)) in accounts.into_iter().enumerate() {
+                            let editing = self
+                                .display
+                                .edit_display
+                                .as_ref()
+                                .is_some_and(|edit| edit.id == i);
+                            let draggable = !editing
+                                && !self.display.sort.enabled
+                                && self.display.filter_search.is_empty();
+                            let response = ui
+                                .push_id(i, |ui| {
+                                    if draggable {
+                                        let id = ui.make_persistent_id("account-drag");
+                                        let source = ui.dnd_drag_source(id, i, |ui| {
+                                            ui.add(widget::AccountCodeCard::new(
+                                                &acc,
+                                                card_width,
+                                                Some(id),
+                                            ))
+                                        });
+                                        let response = ui.interact(
+                                            source.response.rect,
+                                            id,
+                                            egui::Sense::click_and_drag(),
+                                        );
+                                        source.inner | response
+                                    } else {
+                                        ui.add_enabled(
+                                            !editing,
+                                            widget::AccountCodeCard::new(&acc, card_width, None),
+                                        )
+                                    }
+                                })
+                                .inner
+                                .on_hover_cursor(egui::CursorIcon::PointingHand);
+                            if draggable {
+                                if let Some(source) = response.dnd_hover_payload::<Uuid>()
+                                    && *source != i
+                                {
+                                    let rect = response.rect.shrink(1.0);
+                                    let outline = [
+                                        rect.left_top(),
+                                        rect.right_top(),
+                                        rect.right_bottom(),
+                                        rect.left_bottom(),
+                                        rect.left_top(),
+                                    ];
+                                    ui.painter().extend(egui::Shape::dashed_line(
+                                        &outline,
+                                        egui::Stroke::new(2.0_f32, ui.visuals().selection.bg_fill),
+                                        6.0,
+                                        4.0,
+                                    ));
+                                }
+                                if let Some(source) = response.dnd_release_payload::<Uuid>() {
+                                    actions.push(UiAction::MoveAccount(*source, i));
+                                }
+                            }
                             if response.clicked() {
                                 ui.ctx().copy_text(acc.code.to_owned());
                                 if self.config.close_after_copy {
@@ -477,7 +614,10 @@ impl FactrApp {
                                 }
                             }
                             response.context_menu(|ui| {
-                                // if ui.button(t!("edit")).clicked() { /* TODO */ }
+                                if ui.button(t!("edit")).clicked() {
+                                    actions.push(UiAction::Edit(i));
+                                    ui.close();
+                                }
                                 if ui.button(t!("delete")).clicked() {
                                     actions.push(UiAction::Delete(i));
                                 }
@@ -559,41 +699,16 @@ impl FactrApp {
             }
             UiAction::Add => {
                 let display = self.display.add_display.as_mut().expect("No Add Input");
-                let account_result = match display.method {
-                    AddMethod::ManualInput => {
-                        let issuer = display.manual.issuer.to_owned();
-                        let issuer = if issuer.is_empty() {
-                            None
-                        } else {
-                            Some(issuer)
-                        };
-                        if display.extra_input
-                            && let Some(extra) = &display.manual_extra
-                        {
-                            Account::from_manual(
-                                issuer,
-                                display.manual.account_name.to_owned(),
-                                extra.algo,
-                                extra.digits,
-                                extra.period,
-                                display.manual.secret.to_owned(),
-                            )
-                        } else {
-                            Account::from_manual_with_defaults(
-                                issuer,
-                                display.manual.account_name.to_owned(),
-                                display.manual.secret.to_owned(),
-                            )
-                        }
-                    }
-                    AddMethod::OtpAuthUrl => Account::from_otp_auth_url(&display.otp_auth_url),
-                };
-                let result = account_result.and_then(|account| {
-                    self.vault
-                        .as_mut()
-                        .map(|vault| vault.accounts.push(account))
-                        .ok_or("No Vault".to_string())
-                });
+                let result = self
+                    .vault
+                    .as_mut()
+                    .ok_or("No Vault".to_string())
+                    .and_then(|vault| {
+                        let account = display.to_account(vault.accounts.len())?;
+                        vault.accounts.push(account);
+                        Ok(())
+                    });
+
                 if result.is_ok() {
                     self.error = self.save_storage().err();
                     self.display.add_ui = false;
@@ -602,16 +717,146 @@ impl FactrApp {
                     display.error = result.err();
                 }
             }
-            UiAction::Delete(idx) => {
+            UiAction::Edit(id) => {
+                if let Some(account) = self
+                    .vault
+                    .as_ref()
+                    .and_then(|vault| vault.accounts.iter().find(|account| account.id == id))
+                {
+                    self.display.edit_display = Some(EditDisplay::from_account(account));
+                }
+            }
+            UiAction::CancelEdit => self.display.edit_display = None,
+            UiAction::SaveEdit => {
+                let Some(edit) = &self.display.edit_display else {
+                    return;
+                };
+                let id = edit.id;
+                let result = self
+                    .vault
+                    .as_ref()
+                    .ok_or("No Vault".to_string())
+                    .and_then(|vault| {
+                        vault
+                            .accounts
+                            .iter()
+                            .find(|account| account.id == id)
+                            .ok_or("No Account".to_string())
+                    })
+                    .and_then(|account| edit.input.to_account(account.custom_position))
+                    .and_then(|mut edited_account| {
+                        let vault = self.vault.as_mut().ok_or("No Vault".to_string())?;
+                        let index = vault
+                            .accounts
+                            .iter()
+                            .position(|account| account.id == id)
+                            .ok_or("No Account".to_string())?;
+                        let editable = &mut vault.accounts[index];
+                        edited_account.id = editable.id;
+                        edited_account.created_at = editable.created_at;
+                        edited_account.modified_at = if edited_account.totp == editable.totp {
+                            editable.modified_at
+                        } else {
+                            chrono::Utc::now().timestamp_millis()
+                        };
+                        let old = std::mem::replace(editable, edited_account);
+                        if let Err(error) = self.save_storage() {
+                            self.vault.as_mut().unwrap().accounts[index] = old;
+                            return Err(error);
+                        }
+                        Ok(())
+                    });
+                match result {
+                    Ok(()) => self.display.edit_display = None,
+                    Err(error) => {
+                        self.display.edit_display.as_mut().unwrap().input.error = Some(error)
+                    }
+                }
+            }
+            UiAction::MoveAccount(source, target) => {
+                let move_unavailable = self.display.sort.enabled
+                    || !self.display.filter_search.is_empty()
+                    || source == target;
+                if move_unavailable {
+                    return;
+                }
+                let Some(vault) = &mut self.vault else {
+                    return;
+                };
+                let original_layout_positions: Vec<_> =
+                    vault.accounts.iter().map(|a| a.custom_position).collect();
+                let Some(from) = vault
+                    .accounts
+                    .iter()
+                    .find(|account| account.id == source)
+                    .map(|account| account.custom_position)
+                else {
+                    return;
+                };
+                let Some(to) = vault
+                    .accounts
+                    .iter()
+                    .find(|account| account.id == target)
+                    .map(|account| account.custom_position)
+                else {
+                    return;
+                };
+                for account in &mut vault.accounts {
+                    let position = account.custom_position;
+                    if position == from {
+                        account.custom_position = to;
+                    } else if from < to && position > from && position <= to {
+                        account.custom_position -= 1;
+                    } else if from > to && position >= to && position < from {
+                        account.custom_position += 1;
+                    }
+                }
+                if let Err(error) = self.save_storage() {
+                    for (account, position) in self
+                        .vault
+                        .as_mut()
+                        .unwrap()
+                        .accounts
+                        .iter_mut()
+                        .zip(original_layout_positions)
+                    {
+                        account.custom_position = position;
+                    }
+                    self.error = Some(error);
+                }
+            }
+            UiAction::Delete(id) => {
+                if self
+                    .display
+                    .edit_display
+                    .as_ref()
+                    .is_some_and(|edit| edit.id == id)
+                {
+                    self.display.edit_display = None;
+                }
                 self.error = self
                     .vault
                     .as_mut()
                     .ok_or("No Vault".to_string())
-                    .map(|vault| vault.accounts.remove(idx))
+                    .and_then(|vault| {
+                        let idx = vault
+                            .accounts
+                            .iter()
+                            .position(|account| account.id == id)
+                            .ok_or("No Account".to_string())?;
+                        let removed = vault.accounts.remove(idx);
+                        for account in &mut vault.accounts {
+                            if account.custom_position > removed.custom_position {
+                                account.custom_position -= 1;
+                            }
+                        }
+                        Ok(())
+                    })
                     .and_then(|_| self.save_storage())
                     .err();
             }
             UiAction::UpdateConfiguration => {
+                self.config.sort = self.display.sort;
                 if let Some(settings_display) = &self.display.settings_display {
                     self.config.close_after_copy = settings_display.close_after_copy;
                     self.config.always_on_top = settings_display.always_on_top;
@@ -627,9 +872,8 @@ impl FactrApp {
                     } else {
                         ctx.send_viewport_cmd(ViewportCommand::WindowLevel(WindowLevel::Normal));
                     }
-
-                    self.error = config::save_to_dot_config(&self.config).err();
                 }
+                self.error = config::save_to_dot_config(&self.config).err();
             }
         }
     }
@@ -677,11 +921,15 @@ impl FactrApp {
 }
 
 enum UiAction {
+    MoveAccount(Uuid, Uuid),
+    Edit(Uuid),
+    SaveEdit,
+    CancelEdit,
     UnlockVault,
     LockVault,
     Setup,
     Add,
-    Delete(usize),
+    Delete(Uuid),
     UpdateConfiguration,
 }
 

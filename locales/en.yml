@@ -5,6 +5,9 @@ lock-vault: Lock Vault
 add-code: Add New Code
 settings-label: Settings
 delete: Delete
+edit: Edit
+save: Save
+cancel: Cancel
 vault-locked: Vault is Locked
 enter-password: Enter Password
 unlock-vault: Unlock Vault
@@ -40,3 +43,10 @@ settings:
     dark: Dark
     light: Light
     system: System
+sort:
+  enable: Sort...
+  by: Sort by
+  name: Name
+  username: Username
+  first-added: First Added
+  last-modified: Last Modified

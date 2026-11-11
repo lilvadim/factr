@@ -1,3 +1,4 @@
+use crate::phosphor;
 use egui::{
     ComboBox, DragValue, Frame, Id, Label, Response, RichText, Sense, TextEdit, Ui, UiBuilder,
     Widget, vec2,
@@ -5,11 +6,140 @@ use egui::{
 use rust_i18n::t;
 use totp_rs::Algorithm;
 
-use crate::view::model::{AccountDisplay, AddDisplay, AddMethod, ManualInput, ManualInputExtra};
+use crate::config::{AccountSort, SortField};
+use crate::view::model::{
+    AccountDisplay, AccountFieldsDisplay, AddMethod, ManualInput, ManualInputExtra,
+};
+
+pub struct AccountSortControl<'a>(pub &'a mut AccountSort);
+
+pub struct InnerWindowHeader<'a> {
+    title: &'a str,
+}
+
+impl<'a> InnerWindowHeader<'a> {
+    pub fn new(title: &'a str) -> Self {
+        Self { title }
+    }
+}
+
+impl Widget for InnerWindowHeader<'_> {
+    fn ui(self, ui: &mut Ui) -> Response {
+        let close = ui
+            .horizontal(|ui| {
+                #[cfg(target_os = "macos")]
+                {
+                    let close =
+                        ui.add(egui::Button::new(RichText::new(phosphor::X_CIRCLE)).frame(false));
+                    ui.add(Label::new(RichText::new(self.title).strong()).selectable(false));
+                    close
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    ui.add(Label::new(RichText::new(self.title).strong()).selectable(false));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.add(egui::Button::new(RichText::new(phosphor::X_SQUARE)).frame(false))
+                    })
+                    .inner
+                }
+            })
+            .inner;
+        ui.separator();
+        ui.add_space(ui.spacing().item_spacing.y);
+        close
+    }
+}
+
+impl AccountSortControl<'_> {
+    pub fn width(&self, ui: &mut Ui) -> f32 {
+        let mut sort = *self.0;
+        let mut sizing_ui = ui.new_child(
+            UiBuilder::new()
+                .id_salt("sort-control-size")
+                .layout(egui::Layout::right_to_left(egui::Align::Center))
+                .sizing_pass()
+                .invisible(),
+        );
+        sizing_ui.add(AccountSortControl(&mut sort)).rect.width()
+    }
+}
+
+impl Widget for AccountSortControl<'_> {
+    fn ui(self, ui: &mut Ui) -> Response {
+        let sort = self.0;
+        let label = |field| match field {
+            SortField::Name => t!("sort.name"),
+            SortField::Username => t!("sort.username"),
+            SortField::FirstAdded => t!("sort.first-added"),
+            SortField::LastModified => t!("sort.last-modified"),
+        };
+        let mut controls = None;
+        let mut changed = false;
+        let right_to_left = ui.layout().main_dir() == egui::Direction::RightToLeft;
+        let checkbox = |ui: &mut Ui, sort: &mut AccountSort| {
+            let text = if sort.enabled {
+                t!("sort.by")
+            } else {
+                t!("sort.enable")
+            };
+            ui.checkbox(&mut sort.enabled, text)
+        };
+        let direction = |ui: &mut Ui, sort: &mut AccountSort| {
+            let mut response = ui.button(if sort.descending {
+                phosphor::ARROW_DOWN_RIGHT
+            } else {
+                phosphor::ARROW_UP_RIGHT
+            });
+            if response.clicked() {
+                sort.descending = !sort.descending;
+                response.mark_changed();
+            }
+            response
+        };
+        let first = if right_to_left {
+            None
+        } else {
+            Some(checkbox(ui, sort))
+        };
+        if sort.enabled {
+            let leading = if right_to_left {
+                Some(direction(ui, sort))
+            } else {
+                None
+            };
+            let field = ComboBox::from_id_salt("account-sort")
+                .selected_text(label(sort.field))
+                .show_ui(ui, |ui| {
+                    for field in [
+                        SortField::Name,
+                        SortField::Username,
+                        SortField::FirstAdded,
+                        SortField::LastModified,
+                    ] {
+                        changed |= ui
+                            .selectable_value(&mut sort.field, field, label(field))
+                            .changed();
+                    }
+                });
+            let direction = leading.unwrap_or_else(|| direction(ui, sort));
+            controls = Some(direction | field.response);
+        }
+        let checkbox = first.unwrap_or_else(|| checkbox(ui, sort));
+        let mut response = match controls {
+            Some(controls) => checkbox | controls,
+            None => checkbox,
+        };
+        if changed {
+            response.mark_changed();
+        }
+        response
+    }
+}
 
 pub struct AccountCodeCard<'a> {
     account: &'a AccountDisplay,
     width: f32,
+    interaction_id: Option<Id>,
 }
 
 impl<'a> AccountCodeCard<'a> {
@@ -17,8 +147,12 @@ impl<'a> AccountCodeCard<'a> {
     pub const MAX_WIDTH: f32 = 300.0;
     pub const HEIGHT: f32 = 100.0;
 
-    pub fn new(account: &'a AccountDisplay, width: f32) -> Self {
-        Self { account, width }
+    pub fn new(account: &'a AccountDisplay, width: f32, interaction_id: Option<Id>) -> Self {
+        Self {
+            account,
+            width,
+            interaction_id,
+        }
     }
 }
 
@@ -26,16 +160,20 @@ impl Widget for AccountCodeCard<'_> {
     fn ui(self, ui: &mut Ui) -> egui::Response {
         let response = ui
             .scope_builder(UiBuilder::new().sense(Sense::click()), |ui| {
-                let response = ui.response();
-                let visuals = ui.style().interact(&response);
+                let response = self
+                    .interaction_id
+                    .and_then(|id| ui.ctx().read_response(id))
+                    .unwrap_or_else(|| ui.response());
+                let visuals = *ui.style().interact(&response);
 
                 let frame = Frame::canvas(ui.style())
-                    .fill(visuals.bg_fill)
-                    .stroke(visuals.bg_stroke)
+                    .stroke(egui::Stroke::NONE)
                     .inner_margin(ui.spacing().menu_margin);
                 let content_size = vec2(self.width, Self::HEIGHT) - frame.total_margin().sum();
 
-                frame.show(ui, |ui| {
+                let mut prepared = frame.begin(ui);
+                {
+                    let ui = &mut prepared.content_ui;
                     ui.set_min_size(content_size);
 
                     ui.vertical(|ui| {
@@ -58,7 +196,18 @@ impl Widget for AccountCodeCard<'_> {
                         .selectable(false)
                         .ui(ui);
                     });
-                });
+                }
+                prepared.allocate_space(ui);
+                prepared.frame = prepared
+                    .frame
+                    .inner_margin(
+                        egui::epaint::MarginF32::from(frame.inner_margin) + visuals.expansion
+                            - visuals.bg_stroke.width,
+                    )
+                    .outer_margin(-visuals.expansion)
+                    .fill(visuals.bg_fill)
+                    .stroke(visuals.bg_stroke);
+                prepared.paint(ui);
             })
             .response;
         ui.ctx().request_repaint_after_secs(1.0);
@@ -157,11 +306,11 @@ impl Widget for AccountInputForm<'_> {
 }
 
 pub(crate) struct AccountAddForm<'a> {
-    display: &'a mut AddDisplay,
+    display: &'a mut AccountFieldsDisplay,
 }
 
 impl<'a> AccountAddForm<'a> {
-    pub fn new(display: &'a mut AddDisplay) -> Self {
+    pub fn new(display: &'a mut AccountFieldsDisplay) -> Self {
         Self { display }
     }
 }

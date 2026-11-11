@@ -1,4 +1,5 @@
 use std::fmt::Display;
+use uuid::Uuid;
 
 use aes_gcm::{
     Aes256Gcm, KeyInit, Nonce,
@@ -50,20 +51,36 @@ impl Password {
 }
 
 pub struct Account {
+    pub id: Uuid,
     pub totp: TOTP,
+    pub created_at: i64,
+    pub modified_at: i64,
+    pub custom_position: usize,
 }
 
 impl Account {
-    pub fn from_otp_auth_url(otp_auth_url: &str) -> Result<Self, String> {
-        Ok(Self {
-            totp: TOTP::from_url(otp_auth_url).map_err(|e| format!("TOTP URL Init Error: {e}"))?,
-        })
+    fn new(totp: TOTP, custom_position: usize) -> Self {
+        let now = chrono::Utc::now().timestamp_millis();
+        Self {
+            id: Uuid::new_v4(),
+            totp,
+            created_at: now,
+            modified_at: now,
+            custom_position,
+        }
+    }
+    pub fn from_otp_auth_url(otp_auth_url: &str, position: usize) -> Result<Self, String> {
+        Ok(Self::new(
+            TOTP::from_url(otp_auth_url).map_err(|e| format!("TOTP URL Init Error: {e}"))?,
+            position,
+        ))
     }
 
     pub fn from_manual_with_defaults(
         issuer: Option<String>,
         account_name: String,
         secret: String,
+        position: usize,
     ) -> Result<Self, String> {
         Self::from_manual(
             issuer,
@@ -72,6 +89,7 @@ impl Account {
             DEFAULT_DIGITS,
             DEFAULT_PERIOD,
             secret,
+            position,
         )
     }
 
@@ -82,12 +100,13 @@ impl Account {
         digits: usize,
         period: u64,
         secret_b32: String,
+        position: usize,
     ) -> Result<Self, String> {
         let secret = Secret::Encoded(secret_b32)
             .to_bytes()
             .map_err(|e| format!("Wrong Secret: {e}"))?;
         let totp = init_totp(issuer, account_name, algo, digits, period, secret)?;
-        Ok(Self { totp })
+        Ok(Self::new(totp, position))
     }
 
     pub fn decrypted(
@@ -104,7 +123,13 @@ impl Account {
             secret.to_owned(),
         )
         .map_err(|e| VaultDecryptError::Other(e.to_string()))?;
-        Ok(Self { totp })
+        Ok(Self {
+            id: encrypted_account.id,
+            totp,
+            created_at: encrypted_account.created_at,
+            modified_at: encrypted_account.modified_at,
+            custom_position: encrypted_account.custom_position,
+        })
     }
 
     pub fn current_state(&self) -> Result<(String, u64), String> {

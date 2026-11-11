@@ -7,6 +7,23 @@ pub const APP_NAME: &str = "factr";
 const CONFIG_FILE: &str = "config.json";
 const STORAGE_FILE: &str = "storage.json";
 
+#[derive(Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AccountSort {
+    pub enabled: bool,
+    pub field: SortField,
+    pub descending: bool,
+}
+
+#[derive(Default, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
+pub enum SortField {
+    #[default]
+    Name,
+    Username,
+    FirstAdded,
+    LastModified,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -15,6 +32,7 @@ pub struct Config {
     pub always_on_top: bool,
     pub toolbar_labels: bool,
     pub theme: ThemePreference,
+    pub sort: AccountSort,
 }
 
 impl Default for Config {
@@ -25,6 +43,7 @@ impl Default for Config {
             always_on_top: false,
             toolbar_labels: true,
             theme: ThemePreference::System,
+            sort: AccountSort::default(),
         }
     }
 }
