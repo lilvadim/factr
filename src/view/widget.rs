@@ -13,6 +13,43 @@ use crate::view::model::{
 
 pub struct AccountSortControl<'a>(pub &'a mut AccountSort);
 
+pub struct InnerWindowHeader<'a> {
+    title: &'a str,
+}
+
+impl<'a> InnerWindowHeader<'a> {
+    pub fn new(title: &'a str) -> Self {
+        Self { title }
+    }
+}
+
+impl Widget for InnerWindowHeader<'_> {
+    fn ui(self, ui: &mut Ui) -> Response {
+        let close = ui
+            .horizontal(|ui| {
+                #[cfg(target_os = "macos")]
+                {
+                    let close =
+                        ui.add(egui::Button::new(RichText::new(phosphor::X_CIRCLE)).frame(false));
+                    ui.add(Label::new(RichText::new(self.title).strong()).selectable(false));
+                    close
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    ui.add(Label::new(RichText::new(self.title).strong()).selectable(false));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.add(egui::Button::new(RichText::new(phosphor::X_SQUARE)).frame(false))
+                    })
+                    .inner
+                }
+            })
+            .inner;
+        ui.separator();
+        ui.add_space(ui.spacing().item_spacing.y);
+        close
+    }
+}
+
 impl AccountSortControl<'_> {
     pub fn width(&self, ui: &mut Ui) -> f32 {
         let mut sort = *self.0;
@@ -127,15 +164,16 @@ impl Widget for AccountCodeCard<'_> {
                     .interaction_id
                     .and_then(|id| ui.ctx().read_response(id))
                     .unwrap_or_else(|| ui.response());
-                let visuals = ui.style().interact(&response);
+                let visuals = *ui.style().interact(&response);
 
                 let frame = Frame::canvas(ui.style())
-                    .fill(visuals.bg_fill)
-                    .stroke(visuals.bg_stroke)
+                    .stroke(egui::Stroke::NONE)
                     .inner_margin(ui.spacing().menu_margin);
                 let content_size = vec2(self.width, Self::HEIGHT) - frame.total_margin().sum();
 
-                frame.show(ui, |ui| {
+                let mut prepared = frame.begin(ui);
+                {
+                    let ui = &mut prepared.content_ui;
                     ui.set_min_size(content_size);
 
                     ui.vertical(|ui| {
@@ -158,7 +196,18 @@ impl Widget for AccountCodeCard<'_> {
                         .selectable(false)
                         .ui(ui);
                     });
-                });
+                }
+                prepared.allocate_space(ui);
+                prepared.frame = prepared
+                    .frame
+                    .inner_margin(
+                        egui::epaint::MarginF32::from(frame.inner_margin) + visuals.expansion
+                            - visuals.bg_stroke.width,
+                    )
+                    .outer_margin(-visuals.expansion)
+                    .fill(visuals.bg_fill)
+                    .stroke(visuals.bg_stroke);
+                prepared.paint(ui);
             })
             .response;
         ui.ctx().request_repaint_after_secs(1.0);

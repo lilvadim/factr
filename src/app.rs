@@ -402,21 +402,32 @@ impl FactrApp {
                     .content_rect()
                     .with_min_y(min_y + TRAFFIC_LIGHTS_HEIGHT)
             };
+            let mut close_add = false;
             Window::new(t!("add-code"))
-                .collapsible(false)
+                .title_bar(false)
                 .open(&mut self.display.add_ui)
                 .constrain_to(content_rect)
                 .show(ui.ctx(), |ui| {
+                    close_add = ui
+                        .add(widget::InnerWindowHeader::new(&t!("add-code")))
+                        .clicked();
                     actions.extend(Self::display_add(
                         self.display.add_display.get_or_insert_default(),
                         ui,
                     ));
                 });
+            if close_add {
+                self.display.add_ui = false;
+            }
+            let mut close_settings = false;
             Window::new(t!("settings-label"))
-                .collapsible(false)
+                .title_bar(false)
                 .open(&mut self.display.settings_ui)
                 .constrain_to(content_rect)
                 .show(ui.ctx(), |ui| {
+                    close_settings = ui
+                        .add(widget::InnerWindowHeader::new(&t!("settings-label")))
+                        .clicked();
                     actions.extend(Self::display_settings(
                         self.display
                             .settings_display
@@ -424,14 +435,21 @@ impl FactrApp {
                         ui,
                     ));
                 });
+            if close_settings {
+                self.display.settings_ui = false;
+            }
 
             if let Some(edit) = &mut self.display.edit_display {
                 let mut open = true;
+                let mut close_edit = false;
                 Window::new(t!("edit"))
-                    .collapsible(false)
+                    .title_bar(false)
                     .open(&mut open)
                     .constrain_to(content_rect)
                     .show(ui.ctx(), |ui| {
+                        close_edit = ui
+                            .add(widget::InnerWindowHeader::new(&t!("edit")))
+                            .clicked();
                         ui.add(widget::AccountInputForm::new(
                             &mut edit.input.manual,
                             &mut edit.input.extra_input,
@@ -447,7 +465,7 @@ impl FactrApp {
                             actions.push(UiAction::CancelEdit);
                         }
                     });
-                if !open {
+                if !open || close_edit {
                     self.display.edit_display = None;
                 }
             }
