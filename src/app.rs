@@ -201,9 +201,13 @@ impl FactrApp {
     fn display_top_bar(&mut self, ui: &mut Ui) -> Vec<UiAction> {
         let mut actions = Vec::new();
         let button_group_width = self.toolbar_button_group_width(ui);
+        let sort_width = widget::AccountSortControl(&mut self.display.sort).width(ui);
         let min_search_width = 120.0;
         let single_row = ui.available_width()
-            >= min_search_width + ui.spacing().item_spacing.x + button_group_width;
+            >= min_search_width
+                + 2.0 * ui.spacing().item_spacing.x
+                + sort_width
+                + button_group_width;
 
         if single_row {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
@@ -219,18 +223,14 @@ impl FactrApp {
                 });
             });
         } else {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-                ui.horizontal(|ui| {
-                    if ui
-                        .add(widget::AccountSortControl(&mut self.display.sort))
-                        .changed()
-                    {
-                        actions.push(UiAction::UpdateConfiguration);
-                    }
-                    self.display_search(ui);
-                });
-            });
+            self.display_search(ui);
             ui.horizontal_wrapped(|ui| {
+                if ui
+                    .add(widget::AccountSortControl(&mut self.display.sort))
+                    .changed()
+                {
+                    actions.push(UiAction::UpdateConfiguration);
+                }
                 self.display_toolbar_buttons(ui, &mut actions);
             });
         }
@@ -458,7 +458,7 @@ impl FactrApp {
             actions.extend(self.display_top_bar(ui));
             ui.add_space(ui.spacing().item_spacing.y);
 
-            let item_spacing = ui.spacing().item_spacing;
+            let item_spacing = egui::Vec2::splat(ui.spacing().item_spacing.x);
             egui::ScrollArea::vertical().show(ui, |ui| {
                 let mut accounts: Vec<_> = self
                     .vault

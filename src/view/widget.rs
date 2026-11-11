@@ -13,6 +13,20 @@ use crate::view::model::{
 
 pub struct AccountSortControl<'a>(pub &'a mut AccountSort);
 
+impl AccountSortControl<'_> {
+    pub fn width(&self, ui: &mut Ui) -> f32 {
+        let mut sort = *self.0;
+        let mut sizing_ui = ui.new_child(
+            UiBuilder::new()
+                .id_salt("sort-control-size")
+                .layout(egui::Layout::right_to_left(egui::Align::Center))
+                .sizing_pass()
+                .invisible(),
+        );
+        sizing_ui.add(AccountSortControl(&mut sort)).rect.width()
+    }
+}
+
 impl Widget for AccountSortControl<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
         let sort = self.0;
@@ -24,16 +38,38 @@ impl Widget for AccountSortControl<'_> {
         };
         let mut controls = None;
         let mut changed = false;
-        if sort.enabled {
-            let direction = ui.button(if sort.descending {
+        let right_to_left = ui.layout().main_dir() == egui::Direction::RightToLeft;
+        let checkbox = |ui: &mut Ui, sort: &mut AccountSort| {
+            let text = if sort.enabled {
+                t!("sort.by")
+            } else {
+                t!("sort.enable")
+            };
+            ui.checkbox(&mut sort.enabled, text)
+        };
+        let direction = |ui: &mut Ui, sort: &mut AccountSort| {
+            let mut response = ui.button(if sort.descending {
                 phosphor::ARROW_DOWN_RIGHT
             } else {
                 phosphor::ARROW_UP_RIGHT
             });
-            if direction.clicked() {
+            if response.clicked() {
                 sort.descending = !sort.descending;
-                changed = true;
+                response.mark_changed();
             }
+            response
+        };
+        let first = if right_to_left {
+            None
+        } else {
+            Some(checkbox(ui, sort))
+        };
+        if sort.enabled {
+            let leading = if right_to_left {
+                Some(direction(ui, sort))
+            } else {
+                None
+            };
             let field = ComboBox::from_id_salt("account-sort")
                 .selected_text(label(sort.field))
                 .show_ui(ui, |ui| {
@@ -48,14 +84,10 @@ impl Widget for AccountSortControl<'_> {
                             .changed();
                     }
                 });
+            let direction = leading.unwrap_or_else(|| direction(ui, sort));
             controls = Some(direction | field.response);
         }
-        let text = if sort.enabled {
-            t!("sort.by")
-        } else {
-            t!("sort.enable")
-        };
-        let checkbox = ui.checkbox(&mut sort.enabled, text);
+        let checkbox = first.unwrap_or_else(|| checkbox(ui, sort));
         let mut response = match controls {
             Some(controls) => checkbox | controls,
             None => checkbox,
