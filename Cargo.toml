@@ -3,12 +3,30 @@ name = "factr-auth"
 version = "1.0.0"
 edition = "2024"
 description = "TOTP authenticator app"
+repository = "https://github.com/lilvadim/factr"
 
-[package.metadata.bundle]
-name = "Factr"
+[package.metadata.packager]
+product-name = "Factr"
 identifier = "factr-auth"
-icon = ["assets/icon/factr_icon.png", "assets/icon/factr_icon_win.svg"]
-category = "public.app-category.utilities"
+icons = ["assets/icon/factr_icon.png"]
+category = "Utility"
+description = "Two-factor authenticator"
+long-description = """
+Generate time-based one-time passwords (TOTP) for your accounts.
+Secrets are stored locally in a password-protected encrypted vault.
+"""
+homepage = "https://github.com/lilvadim/factr"
+before-packaging-command = "cargo build --release"
+
+[package.metadata.packager.macos]
+minimum-system-version = "11.0"
+
+[package.metadata.packager.appimage]
+libs = ["libxkbcommon.so.0"]
+
+[package.metadata.packager.nsis]
+install-mode = "currentUser"
+languages = ["English", "Russian"]
 
 [dependencies]
 egui = { version = "0.33.2", features = ["default", "persistence"] }
@@ -22,14 +40,14 @@ chrono = "0.4.41"
 rand = "0.9.0"
 
 totp-rs = { version = "5.7.0", features = [
-  "gen_secret",
-  "serde_support",
-  "otpauth"
+    "gen_secret",
+    "serde_support",
+    "otpauth",
 ] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 aes-gcm = "0.10.3"
-uuid = { version = "1.23.3", features = ["serde","v4"] }
+uuid = { version = "1.23.3", features = ["serde", "v4"] }
 qrcode = "0.14.1"
 rqrr = "0.10.1"
 argon2 = "0.5.3"

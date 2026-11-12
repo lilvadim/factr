@@ -2,30 +2,72 @@ name: Package Distribution Artifacts
 
 on:
   workflow_dispatch:
+    inputs:
+      build_macos_intel:
+        description: Build macOS Intel DMG
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
+env:
+  CARGO_TERM_COLOR: always
+  APPIMAGE_EXTRACT_AND_RUN: "1"
+
 jobs:
   package_app:
+    name: ${{ matrix.platform }}
     strategy:
+      fail-fast: false
       matrix:
-        configuration: [
-            # { runner: "macos-15-intel", format: "dmg", path: "target/release/bundle/dmg/Factr.dmg" },
-            { runner: "macos-15", format: "dmg", path: "target/release/bundle/dmg/*.dmg" },
-            # { runner: "windows-2022", format: "exe", path: "target/release/bundle/exe/*.exe" },
-            { runner: "ubuntu-latest", format: "appimage", path: "target/release/bundle/appimage/*.AppImage" },
-          ]
-    runs-on: ${{ matrix.configuration.runner }}
+        include:
+          - platform: macos-arm64
+            runner: macos-15
+            format: dmg
+            path: target/release/*.dmg
+          - platform: windows-amd64
+            runner: windows-2022
+            format: nsis
+            path: target/release/*setup.exe
+          - platform: linux-amd64
+            runner: ubuntu-22.04
+            format: appimage
+            path: target/release/*.AppImage
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v6
+      - name: Install Rust
+        run: rustup update stable --no-self-update
+      - run: rustup default stable
       - uses: Swatinem/rust-cache@v2
-      - name: Install Bundler
-        run: cargo install cargo-bundle
-      - name: Bundle Release
-        run: cargo bundle --format ${{ matrix.configuration.format }} --release
+      - name: Install Linux Dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxi-dev libxrandr-dev libxcursor-dev libxinerama-dev libxkbcommon-dev libwayland-dev libgl1-mesa-dev libegl1-mesa-dev libvulkan-dev libudev-dev libssl-dev pkg-config patchelf
+      - name: Install Packager
+        run: cargo install cargo-packager --version 0.11.8 --locked
+      - name: Package Release
+        run: cargo packager --release --formats ${{ matrix.format }}
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Factr_${{ runner.os }}-${{ runner.arch }}
-          path: ${{ matrix.configuration.path }}
+          name: Factr_${{ matrix.platform }}
+          path: ${{ matrix.path }}
+          if-no-files-found: error
+      - name: Install macOS Intel Target
+        if: matrix.platform == 'macos-arm64' && inputs.build_macos_intel
+        run: rustup target add x86_64-apple-darwin
+      - name: Package macOS Intel Release
+        if: matrix.platform == 'macos-arm64' && inputs.build_macos_intel
+        env:
+          CARGO_BUILD_TARGET: x86_64-apple-darwin
+        run: cargo packager --release --target x86_64-apple-darwin --formats dmg
+      - name: Upload macOS Intel Artifact
+        if: matrix.platform == 'macos-arm64' && inputs.build_macos_intel
+        uses: actions/upload-artifact@v4
+        with:
+          name: Factr_macos-intel
+          path: target/x86_64-apple-darwin/release/*.dmg
+          if-no-files-found: error
