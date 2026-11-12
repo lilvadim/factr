@@ -25,7 +25,7 @@ minimum-system-version = "11.0"
 libs = ["libxkbcommon.so.0"]
 
 [package.metadata.packager.nsis]
-install-mode = "currentUser"
+installer-mode = "currentUser"
 languages = ["English", "Russian"]
 installer-icon = "assets/icon/factr_icon.ico"
 
