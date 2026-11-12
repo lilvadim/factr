@@ -12,7 +12,6 @@ use uuid::Uuid;
 
 use egui::Button;
 use egui::Frame;
-use egui::Id;
 use egui::Key;
 use egui::Response;
 use egui::ThemePreference;
@@ -42,14 +41,15 @@ pub struct FactrApp {
 }
 
 impl eframe::App for FactrApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::CentralPanel::default().show(ctx, |ui| {
+    fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+        egui::CentralPanel::default().show(ui, |ui| {
             #[cfg(target_os = "macos")]
             ui.add_space(TRAFFIC_LIGHTS_HEIGHT);
             self.ui(ui);
         });
         #[cfg(target_os = "macos")]
         {
+            let ctx = ui.ctx();
             let close_shortcut = ctx.input(|i| i.key_pressed(Key::W) && i.modifiers.mac_cmd);
             if close_shortcut {
                 ctx.send_viewport_cmd(ViewportCommand::Close);
@@ -169,7 +169,8 @@ impl FactrApp {
             .hint_text(t!("password"))
             .password(true)
             .show(ui);
-        if ui.button(t!("ok")).clicked() {
+        if ui.add(Button::new(t!("ok")).selected(true)).clicked() || Self::form_key(ui, Key::Enter)
+        {
             actions.push(UiAction::Setup);
         }
         if let Some(error) = &setup_display.error {
@@ -192,9 +193,16 @@ impl FactrApp {
         if let Some(error) = &display.error {
             Self::display_error(ui, error);
         }
-        if ui.button(t!("add.add")).clicked() {
-            actions.push(UiAction::Add);
-        }
+        ui.horizontal(|ui| {
+            if ui.button(t!("cancel")).clicked() || Self::form_key(ui, Key::Escape) {
+                actions.push(UiAction::CancelAdd);
+            }
+            if ui.add(Button::new(t!("save")).selected(true)).clicked()
+                || Self::form_key(ui, Key::Enter)
+            {
+                actions.push(UiAction::Add);
+            }
+        });
         actions
     }
 
@@ -202,28 +210,24 @@ impl FactrApp {
         let mut actions = Vec::new();
         let button_group_width = self.toolbar_button_group_width(ui);
         let sort_width = widget::AccountSortControl(&mut self.display.sort).width(ui);
+        let controls_width = sort_width + button_group_width + 2.0 * ui.spacing().item_spacing.x;
         let min_search_width = 120.0;
-        let single_row = ui.available_width()
-            >= min_search_width
-                + 2.0 * ui.spacing().item_spacing.x
-                + sort_width
-                + button_group_width;
+        let search_width = ui.available_width() - controls_width;
+        let single_row = search_width >= min_search_width;
 
         if single_row {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-                ui.horizontal(|ui| {
-                    self.display_toolbar_buttons(ui, &mut actions);
-                    if ui
-                        .add(widget::AccountSortControl(&mut self.display.sort))
-                        .changed()
-                    {
-                        actions.push(UiAction::UpdateConfiguration);
-                    }
-                    self.display_search(ui);
-                });
+            ui.horizontal(|ui| {
+                self.display_search(ui, search_width);
+                if ui
+                    .add(widget::AccountSortControl(&mut self.display.sort))
+                    .changed()
+                {
+                    actions.push(UiAction::UpdateConfiguration);
+                }
+                self.display_toolbar_buttons(ui, &mut actions);
             });
         } else {
-            self.display_search(ui);
+            self.display_search(ui, ui.available_width());
             ui.horizontal_wrapped(|ui| {
                 if ui
                     .add(widget::AccountSortControl(&mut self.display.sort))
@@ -237,11 +241,12 @@ impl FactrApp {
         actions
     }
 
-    fn display_search(&mut self, ui: &mut Ui) {
-        let filter = TextEdit::singleline(&mut self.display.filter_search)
-            .hint_text(format!("{}...", t!("filter-search")))
-            .desired_width(f32::INFINITY)
-            .ui(ui);
+    fn display_search(&mut self, ui: &mut Ui, width: f32) {
+        let filter = ui.add_sized(
+            [width, ui.spacing().interact_size.y],
+            TextEdit::singleline(&mut self.display.filter_search)
+                .hint_text(format!("{}...", t!("filter-search"))),
+        );
         if self.display.search_focus || ui.input(|i| i.key_pressed(Key::F) && i.modifiers.command) {
             filter.request_focus();
             self.display.search_focus = false;
@@ -249,14 +254,11 @@ impl FactrApp {
     }
 
     fn display_toolbar_buttons(&mut self, ui: &mut Ui, actions: &mut Vec<UiAction>) {
-        let mut buttons = [
+        let buttons = [
             (phosphor::LOCK, t!("lock-vault")),
             (phosphor::PLUS, t!("add-code")),
             (phosphor::GEAR, t!("settings-label")),
         ];
-        if ui.layout().main_dir() == egui::Direction::RightToLeft {
-            buttons.reverse();
-        }
         for (icon, label) in buttons {
             if Self::toolbar_button(ui, self.config.toolbar_labels, icon, label).clicked() {
                 match icon {
@@ -269,46 +271,37 @@ impl FactrApp {
         }
     }
 
-    fn toolbar_button_group_width(&self, ui: &Ui) -> f32 {
+    fn toolbar_button_group_width(&self, ui: &mut Ui) -> f32 {
         let cache_id =
             ui.make_persistent_id(("toolbar-button-group-width", self.config.toolbar_labels));
         if let Some(width) = ui.data(|data| data.get_temp::<f32>(cache_id)) {
             return width;
         }
 
-        let button_width =
-            |icon, label| Self::toolbar_button_width(ui, self.config.toolbar_labels, icon, label);
-        let width = button_width(phosphor::LOCK, t!("lock-vault"))
-            + button_width(phosphor::PLUS, t!("add-code"))
-            + button_width(phosphor::GEAR, t!("settings-label"))
-            + 2.0 * ui.spacing().item_spacing.x;
+        let mut sizing_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .id_salt("toolbar-buttons-size")
+                .layout(egui::Layout::left_to_right(egui::Align::Center))
+                .sizing_pass()
+                .invisible(),
+        );
+        let width = sizing_ui
+            .horizontal(|ui| {
+                for (icon, label) in [
+                    (phosphor::LOCK, t!("lock-vault")),
+                    (phosphor::PLUS, t!("add-code")),
+                    (phosphor::GEAR, t!("settings-label")),
+                ] {
+                    Self::toolbar_button(ui, self.config.toolbar_labels, icon, label);
+                }
+            })
+            .response
+            .rect
+            .width();
 
         ui.data_mut(|data| data.insert_temp(cache_id, width));
 
         width
-    }
-
-    fn toolbar_button_width(
-        ui: &Ui,
-        show_label: bool,
-        icon: impl AsRef<str>,
-        label: impl AsRef<str>,
-    ) -> f32 {
-        let text = if show_label {
-            format!("{} {}", icon.as_ref(), label.as_ref())
-        } else {
-            icon.as_ref().to_owned()
-        };
-        let text_width = ui
-            .painter()
-            .layout_no_wrap(
-                text,
-                egui::TextStyle::Button.resolve(ui.style()),
-                ui.visuals().text_color(),
-            )
-            .size()
-            .x;
-        (text_width + 2.0 * ui.spacing().button_padding.x).max(ui.spacing().interact_size.x)
     }
 
     fn toolbar_button(
@@ -361,7 +354,7 @@ impl FactrApp {
                     ThemePreference::System => t!("settings.themes.system"),
                 };
                 let before = settings.theme;
-                ComboBox::from_id_salt(Id::new("settings.theme"))
+                ComboBox::from_id_salt("settings.theme")
                     .selected_text(theme_text(&settings.theme))
                     .show_ui(ui, |ui| {
                         ui.selectable_value(
@@ -434,6 +427,7 @@ impl FactrApp {
                             .get_or_insert(SettingsDisplay::from_config(&self.config)),
                         ui,
                     ));
+                    close_settings |= Self::form_key(ui, Key::Escape);
                 });
             if close_settings {
                 self.display.settings_ui = false;
@@ -458,12 +452,17 @@ impl FactrApp {
                         if let Some(error) = &edit.input.error {
                             Self::display_error(ui, error);
                         }
-                        if ui.button(t!("save")).clicked() {
-                            actions.push(UiAction::SaveEdit);
-                        }
-                        if ui.button(t!("cancel")).clicked() {
-                            actions.push(UiAction::CancelEdit);
-                        }
+                        ui.horizontal(|ui| {
+                            if ui.button(t!("cancel")).clicked() || Self::form_key(ui, Key::Escape)
+                            {
+                                actions.push(UiAction::CancelEdit);
+                            }
+                            if ui.add(Button::new(t!("save")).selected(true)).clicked()
+                                || Self::form_key(ui, Key::Enter)
+                            {
+                                actions.push(UiAction::SaveEdit);
+                            }
+                        });
                     });
                 if !open || close_edit {
                     self.display.edit_display = None;
@@ -640,9 +639,10 @@ impl FactrApp {
                     .request_focus();
                 ui.add_space(ui.spacing().item_spacing.y);
                 if Button::new(RichText::new(t!("unlock-vault")).strong())
+                    .selected(true)
                     .ui(ui)
                     .clicked()
-                    || ui.input(|i| i.key_pressed(Key::Enter))
+                    || Self::form_key(ui, Key::Enter)
                 {
                     actions.push(UiAction::UnlockVault);
                 }
@@ -653,6 +653,28 @@ impl FactrApp {
             });
         }
         actions
+    }
+
+    fn form_key(ui: &mut Ui, key: Key) -> bool {
+        let layer = ui.layer_id();
+        let focused_layer = ui
+            .memory(|memory| memory.focused())
+            .and_then(|id| ui.ctx().read_response(id))
+            .map(|response| response.layer_id);
+        if focused_layer.is_some_and(|focused| focused != layer) {
+            return false;
+        }
+        let is_active = ui.memory(|memory| {
+            memory
+                .layer_ids()
+                .filter(|id| {
+                    memory.areas().is_visible(id)
+                        && matches!(id.order, egui::Order::Middle | egui::Order::Foreground)
+                })
+                .last()
+                .is_none_or(|id| id == layer)
+        });
+        is_active && ui.input_mut(|input| input.consume_key(egui::Modifiers::NONE, key))
     }
 
     fn filter_search_rate(account: &AccountDisplay, query: &str) -> u32 {
@@ -716,6 +738,10 @@ impl FactrApp {
                 } else {
                     display.error = result.err();
                 }
+            }
+            UiAction::CancelAdd => {
+                self.display.add_ui = false;
+                self.display.add_display = None;
             }
             UiAction::Edit(id) => {
                 if let Some(account) = self
@@ -929,6 +955,7 @@ enum UiAction {
     LockVault,
     Setup,
     Add,
+    CancelAdd,
     Delete(Uuid),
     UpdateConfiguration,
 }
