@@ -32,12 +32,12 @@ impl EncryptedAccount {
             created_at: account.created_at,
             modified_at: account.modified_at,
             custom_position: account.custom_position,
-            issuer: account.totp.issuer.to_owned(),
-            account_name: account.totp.account_name.to_owned(),
-            encrypted_secret_b64: vault::encrypt_secret(&account.totp.secret, key)?,
-            algo: account.totp.algorithm,
-            digits: account.totp.digits,
-            period: account.totp.step,
+            issuer: account.totp.issuer().map(str::to_owned),
+            account_name: account.totp.account_name().to_owned(),
+            encrypted_secret_b64: vault::encrypt_secret(account.totp.secret().as_bytes(), key)?,
+            algo: account.totp.algorithm(),
+            digits: account.totp.digits().into(),
+            period: account.totp.step(),
         })
     }
 }

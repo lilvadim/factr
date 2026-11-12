@@ -42,8 +42,8 @@ impl AccountDisplay {
             created_at: account.created_at,
             modified_at: account.modified_at,
             custom_position: account.custom_position,
-            issuer: account.totp.issuer.to_owned(),
-            account_name: account.totp.account_name.to_owned(),
+            issuer: account.totp.issuer().map(str::to_owned),
+            account_name: account.totp.account_name().to_owned(),
             code,
             remaining_secs,
         })
@@ -93,15 +93,15 @@ impl EditDisplay {
             id: account.id,
             input: AccountFieldsDisplay {
                 manual: ManualInput {
-                    issuer: account.totp.issuer.clone().unwrap_or_default(),
-                    account_name: account.totp.account_name.clone(),
-                    secret: account.totp.get_secret_base32(),
+                    issuer: account.totp.issuer().unwrap_or_default().to_owned(),
+                    account_name: account.totp.account_name().to_owned(),
+                    secret: account.totp.secret().to_base32(),
                 },
                 extra_input: true,
                 manual_extra: Some(ManualInputExtra {
-                    algo: account.totp.algorithm,
-                    digits: account.totp.digits,
-                    period: account.totp.step,
+                    algo: account.totp.algorithm(),
+                    digits: account.totp.digits().into(),
+                    period: account.totp.step(),
                 }),
                 ..Default::default()
             },

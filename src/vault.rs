@@ -3,11 +3,11 @@ use uuid::Uuid;
 
 use aes_gcm::{
     Aes256Gcm, KeyInit, Nonce,
-    aead::{Aead, OsRng, rand_core::RngCore},
+    aead::{Aead, Generate},
 };
-use argon2::{Argon2, password_hash::SaltString};
+use argon2::{Argon2, password_hash::phc::SaltString};
 use base64::prelude::*;
-use totp_rs::{Algorithm, Secret, TOTP};
+use totp_rs::{Algorithm, Builder, Secret, Totp};
 
 use crate::encrypted_storage::{EncryptedAccount, Storage};
 
@@ -17,7 +17,7 @@ const KEY_LEN: usize = 32;
 pub const DEFAULT_ALGO: Algorithm = Algorithm::SHA1;
 pub const DEFAULT_DIGITS: usize = 6;
 pub const DEFAULT_PERIOD: u64 = 30;
-const DEFAULT_SKEW: u8 = 1;
+const DEFAULT_SKEW: u16 = 1;
 
 pub struct Password(pub String);
 
@@ -52,14 +52,14 @@ impl Password {
 
 pub struct Account {
     pub id: Uuid,
-    pub totp: TOTP,
+    pub totp: Totp,
     pub created_at: i64,
     pub modified_at: i64,
     pub custom_position: usize,
 }
 
 impl Account {
-    fn new(totp: TOTP, custom_position: usize) -> Self {
+    fn new(totp: Totp, custom_position: usize) -> Self {
         let now = chrono::Utc::now().timestamp_millis();
         Self {
             id: Uuid::new_v4(),
@@ -71,7 +71,7 @@ impl Account {
     }
     pub fn from_otp_auth_url(otp_auth_url: &str, position: usize) -> Result<Self, String> {
         Ok(Self::new(
-            TOTP::from_url(otp_auth_url).map_err(|e| format!("TOTP URL Init Error: {e}"))?,
+            Totp::from_url(otp_auth_url).map_err(|e| format!("TOTP URL Init Error: {e}"))?,
             position,
         ))
     }
@@ -102,10 +102,16 @@ impl Account {
         secret_b32: String,
         position: usize,
     ) -> Result<Self, String> {
-        let secret = Secret::Encoded(secret_b32)
-            .to_bytes()
-            .map_err(|e| format!("Wrong Secret: {e}"))?;
-        let totp = init_totp(issuer, account_name, algo, digits, period, secret)?;
+        let secret =
+            Secret::try_from_base32(&secret_b32).map_err(|e| format!("Wrong Secret: {e}"))?;
+        let totp = init_totp(
+            issuer,
+            account_name,
+            algo,
+            digits,
+            period,
+            secret.as_bytes().to_vec(),
+        )?;
         Ok(Self::new(totp, position))
     }
 
@@ -134,10 +140,8 @@ impl Account {
 
     pub fn current_state(&self) -> Result<(String, u64), String> {
         let totp = &self.totp;
-        let remaining = totp.ttl().map_err(|e| format!("Cannot get ttl: {e}"))?;
-        let code = totp
-            .generate_current()
-            .map_err(|e| format!("Cannot generate code: {e}"))?;
+        let remaining = totp.ttl();
+        let code = totp.generate_current().to_string();
         Ok((code, remaining))
     }
 }
@@ -150,8 +154,8 @@ pub struct Vault {
 
 impl Vault {
     pub fn initialize(password: &Password) -> Result<Vault, String> {
-        let salt = SaltString::generate(&mut OsRng);
-        let master_key = master_key(&password.0, salt.as_str())?;
+        let salt = SaltString::generate();
+        let master_key = master_key(&password.0, salt.as_ref())?;
         Ok(Vault {
             master_key,
             salt,
@@ -189,42 +193,33 @@ fn init_totp(
     digits: usize,
     period: u64,
     secret: Vec<u8>,
-) -> Result<TOTP, String> {
-    let totp = if secret.len() != 10 {
-        TOTP::new(
-            algo,
-            digits,
-            DEFAULT_SKEW,
-            period,
-            secret,
-            issuer,
-            account_name,
-        )
-        .map_err(|e| format!("TOTP Init Error: {e}"))?
-    } else {
+) -> Result<Totp, String> {
+    let digits = u8::try_from(digits).map_err(|e| format!("TOTP Init Error: {e}"))?;
+    let short_secret = secret.len() == 10;
+    let builder = Builder::new()
+        .with_algorithm(algo)
+        .with_digits(digits)
+        .with_skew(DEFAULT_SKEW)
+        .with_step_duration(period)
+        .with_secret(secret)
+        .with_issuer(issuer)
+        .with_account_name(account_name);
+    let totp = if short_secret {
         // Google Authenticator Compatibility
-        TOTP::new_unchecked(
-            algo,
-            digits,
-            DEFAULT_SKEW,
-            period,
-            secret,
-            issuer,
-            account_name,
-        )
+        builder.build_noncompliant()
+    } else {
+        builder
+            .build()
+            .map_err(|e| format!("TOTP Init Error: {e}"))?
     };
     Ok(totp)
 }
 
 pub fn encrypt_secret(secret: &[u8], key: &[u8; KEY_LEN]) -> Result<String, String> {
     let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| e.to_string())?;
-    let mut nonce_bytes = [0u8; NONCE_LEN];
-    OsRng
-        .try_fill_bytes(&mut nonce_bytes)
-        .map_err(|e| e.to_string())?;
-    let nonce = Nonce::from_slice(&nonce_bytes);
-    let cipher_text = cipher.encrypt(nonce, secret).map_err(|e| e.to_string())?;
-    let mut combined = nonce_bytes.to_vec();
+    let nonce = Nonce::try_generate().map_err(|e| e.to_string())?;
+    let cipher_text = cipher.encrypt(&nonce, secret).map_err(|e| e.to_string())?;
+    let mut combined = nonce.to_vec();
     combined.extend_from_slice(&cipher_text);
     Ok(BASE64_STANDARD.encode(&combined))
 }
@@ -234,7 +229,8 @@ fn master_key(password: &str, salt_b64: &str) -> Result<[u8; KEY_LEN], String> {
     let salt = SaltString::from_b64(salt_b64).map_err(|e| e.to_string())?;
     let mut key = [0u8; KEY_LEN];
     argon2
-        .hash_password_into(password.as_bytes(), salt.as_str().as_bytes(), &mut key)
+        // V1 derives the key from the encoded salt, not its decoded bytes.
+        .hash_password_into(password.as_bytes(), salt.as_bytes(), &mut key)
         .map_err(|e| e.to_string())?;
     Ok(key)
 }
@@ -246,11 +242,113 @@ fn decrypt_secret(
     let combined = BASE64_STANDARD
         .decode(encrypted_secret_b64)
         .map_err(|e| VaultDecryptError::Other(e.to_string()))?;
-    let (nonce_bytes, cipher_text) = combined.split_at(NONCE_LEN);
+    let (nonce_bytes, cipher_text) = combined
+        .split_at_checked(NONCE_LEN)
+        .ok_or_else(|| VaultDecryptError::Other("Invalid encrypted secret length".to_string()))?;
     let cipher =
         Aes256Gcm::new_from_slice(key).map_err(|e| VaultDecryptError::Other(e.to_string()))?;
-    let nonce = Nonce::from_slice(nonce_bytes);
+    let nonce =
+        Nonce::try_from(nonce_bytes).map_err(|e| VaultDecryptError::Other(e.to_string()))?;
     cipher
-        .decrypt(nonce, cipher_text)
+        .decrypt(&nonce, cipher_text)
         .map_err(|_| VaultDecryptError::DecryptFailed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn totp_matches_rfc6238() {
+        for (algorithm, secret, expected) in [
+            (
+                Algorithm::SHA1,
+                b"12345678901234567890".as_slice(),
+                "94287082",
+            ),
+            (
+                Algorithm::SHA256,
+                b"12345678901234567890123456789012".as_slice(),
+                "46119246",
+            ),
+            (
+                Algorithm::SHA512,
+                b"1234567890123456789012345678901234567890123456789012345678901234".as_slice(),
+                "90693936",
+            ),
+        ] {
+            let totp =
+                init_totp(None, "test".to_string(), algorithm, 8, 30, secret.to_vec()).unwrap();
+            assert_eq!(totp.generate(59).to_string(), expected);
+        }
+    }
+
+    #[test]
+    fn storage_round_trip_preserves_accounts() {
+        let mut vault = Vault::initialize(&Password("test-password".to_string())).unwrap();
+        for secret in ["1234567890", "12345678901234567890"] {
+            let totp = init_totp(
+                Some("Issuer".to_string()),
+                "user".to_string(),
+                DEFAULT_ALGO,
+                6,
+                30,
+                secret.as_bytes().to_vec(),
+            )
+            .unwrap();
+            vault
+                .accounts
+                .push(Account::new(totp, vault.accounts.len()));
+        }
+        let storage = Storage::encrypt_vault(&vault).unwrap();
+        let json = serde_json::to_string(&storage).unwrap();
+        let storage = serde_json::from_str(&json).unwrap();
+        let decrypted = Vault::decrypt_storage("test-password", &storage)
+            .ok()
+            .unwrap();
+        assert_eq!(vault.accounts.len(), decrypted.accounts.len());
+        for (old, new) in vault.accounts.iter().zip(&decrypted.accounts) {
+            assert_eq!(old.id, new.id);
+            assert_eq!(old.created_at, new.created_at);
+            assert_eq!(old.modified_at, new.modified_at);
+            assert_eq!(old.custom_position, new.custom_position);
+            assert_eq!(old.totp.issuer(), new.totp.issuer());
+            assert_eq!(old.totp.account_name(), new.totp.account_name());
+            assert_eq!(old.totp.secret().as_bytes(), new.totp.secret().as_bytes());
+            assert_eq!(old.totp.algorithm(), new.totp.algorithm());
+            assert_eq!(old.totp.digits(), new.totp.digits());
+            assert_eq!(old.totp.step(), new.totp.step());
+            assert_eq!(
+                old.totp.generate(59).to_string(),
+                new.totp.generate(59).to_string()
+            );
+        }
+    }
+
+    #[test]
+    fn account_import_supports_manual_and_otp_auth_url() {
+        let secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+        let manual = Account::from_manual_with_defaults(
+            Some("Issuer".to_string()),
+            "user".to_string(),
+            secret.to_string(),
+            0,
+        )
+        .unwrap();
+        let url = Account::from_otp_auth_url(
+            &format!("otpauth://totp/Issuer:user?secret={secret}&issuer=Issuer"),
+            0,
+        )
+        .unwrap();
+        assert_eq!(manual.totp, url.totp);
+        assert!(
+            Account::from_manual_with_defaults(
+                None,
+                "user".to_string(),
+                "JBSWY3DPEHPK3PXP".to_string(),
+                0,
+            )
+            .is_ok()
+        );
+    }
 }

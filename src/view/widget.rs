@@ -269,7 +269,7 @@ impl Widget for AccountInputForm<'_> {
                 }
                 ui.horizontal(|ui| {
                     ui.label(t!("account.algorithm"));
-                    ComboBox::from_id_salt(Id::new("manual_extra.algo"))
+                    ComboBox::from_id_salt("manual_extra.algo")
                         .selected_text(extra_input.algo.to_string())
                         .show_ui(ui, |ui| {
                             ui.selectable_value(
