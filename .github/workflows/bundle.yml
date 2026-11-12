@@ -15,6 +15,10 @@ on:
         description: Build Windows AMD64 installer
         type: boolean
         default: true
+      build_windows_arm64:
+        description: Build Windows ARM64 installer
+        type: boolean
+        default: true
       build_linux_amd64:
         description: Build Linux AMD64 AppImage
         type: boolean
@@ -50,6 +54,7 @@ jobs:
               { input: 'build_macos_arm64', platform: 'macos-arm64', runner: 'macos-15', format: 'dmg', path: 'target/release/*.dmg' },
               { input: 'build_macos_intel', platform: 'macos-intel', runner: 'macos-15', format: 'dmg', target: 'x86_64-apple-darwin', path: 'target/x86_64-apple-darwin/release/*.dmg' },
               { input: 'build_windows_amd64', platform: 'windows-amd64', runner: 'windows-2022', format: 'nsis', path: 'target/release/*setup.exe' },
+              { input: 'build_windows_arm64', platform: 'windows-arm64', runner: 'windows-11-arm', format: 'nsis', target: 'aarch64-pc-windows-msvc', path: 'target/aarch64-pc-windows-msvc/release/*setup.exe' },
               { input: 'build_linux_amd64', platform: 'linux-amd64', runner: 'ubuntu-22.04', format: 'appimage', path: 'target/release/*.AppImage' },
               { input: 'build_linux_arm64', platform: 'linux-arm64', runner: 'ubuntu-22.04-arm', format: 'appimage', path: 'target/release/*.AppImage' },
             ];
@@ -78,13 +83,13 @@ jobs:
           sudo apt-get install -y libx11-dev libxi-dev libxrandr-dev libxcursor-dev libxinerama-dev libxkbcommon-dev libwayland-dev libgl1-mesa-dev libegl1-mesa-dev libvulkan-dev libudev-dev libssl-dev pkg-config patchelf
       - name: Install Packager
         run: cargo install cargo-packager --version 0.11.8 --locked
-      - name: Install Cross-Compilation Target
+      - name: Install Rust Target
         if: matrix.target != ''
         run: rustup target add ${{ matrix.target }}
       - name: Package Release
         if: matrix.target == ''
         run: cargo packager --release --formats ${{ matrix.format }}
-      - name: Package Cross-Compiled Release
+      - name: Package Targeted Release
         if: matrix.target != ''
         env:
           CARGO_BUILD_TARGET: ${{ matrix.target }}
