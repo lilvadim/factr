@@ -12,7 +12,7 @@ Desktop 2FA TOTP authenticator application.
 
 ```sh
 brew tap lilvadim/tap
-brew install --cask --no-quarantine factr
+brew install --cask factr
 ```
 
 ## Manually
