@@ -1,0 +1,27 @@
+[
+  {
+    "name": "feature",
+    "color": "0E8A16",
+    "description": "New features and enhancements"
+  },
+  {
+    "name": "bug",
+    "color": "D73A4A",
+    "description": "Bug fixes"
+  },
+  {
+    "name": "dependencies",
+    "color": "0366D6",
+    "description": "Dependency updates"
+  },
+  {
+    "name": "maintenance",
+    "color": "5319E7",
+    "description": "Refactoring, CI, documentation, and maintenance"
+  },
+  {
+    "name": "skip-release-notes",
+    "color": "EDEDED",
+    "description": "Exclude this pull request from generated release notes"
+  }
+]

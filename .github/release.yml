@@ -1,0 +1,20 @@
+changelog:
+  exclude:
+    labels:
+      - skip-release-notes
+  categories:
+    - title: New Features
+      labels:
+        - feature
+    - title: Bug Fixes
+      labels:
+        - bug
+    - title: Dependencies
+      labels:
+        - dependencies
+    - title: Maintenance
+      labels:
+        - maintenance
+    - title: Other Changes
+      labels:
+        - "*"

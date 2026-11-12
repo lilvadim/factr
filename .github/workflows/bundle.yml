@@ -3,6 +3,10 @@ name: Package Distribution Artifacts
 on:
   workflow_dispatch:
     inputs:
+      create_release:
+        description: Create draft release with notes
+        type: boolean
+        default: false
       build_macos_arm64:
         description: Build macOS ARM64 DMG
         type: boolean
@@ -10,7 +14,7 @@ on:
       build_macos_intel:
         description: Build macOS Intel DMG
         type: boolean
-        default: false
+        default: true
       build_windows_amd64:
         description: Build Windows AMD64 installer
         type: boolean
@@ -42,7 +46,22 @@ jobs:
     outputs:
       matrix: ${{ steps.select.outputs.matrix }}
       enabled: ${{ steps.select.outputs.enabled }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
+      - uses: actions/checkout@v6
+      - name: Read Package Version
+        id: version
+        run: |
+          python3 - <<'PY'
+          import os
+          import tomllib
+
+          with open("Cargo.toml", "rb") as manifest:
+              version = tomllib.load(manifest)["package"]["version"]
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"version={version}\ntag=v{version}\n")
+          PY
       - uses: actions/github-script@v7
         id: select
         env:
@@ -59,6 +78,10 @@ jobs:
               { input: 'build_linux_arm64', platform: 'linux-arm64', runner: 'ubuntu-22.04-arm', format: 'appimage', path: 'target/release/*.AppImage' },
             ];
             const include = platforms.filter(platform => inputs[platform.input]);
+            if (inputs.create_release && include.length === 0) {
+              core.setFailed('Select at least one platform to create a release.');
+              return;
+            }
             core.setOutput('matrix', JSON.stringify({ include }));
             core.setOutput('enabled', include.length > 0);
 
@@ -100,3 +123,50 @@ jobs:
           name: Factr_${{ matrix.platform }}
           path: ${{ matrix.path }}
           if-no-files-found: error
+
+  create_release:
+    name: Create Draft Release
+    needs: [select_platforms, package_app]
+    if: inputs.create_release && needs.package_app.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    concurrency:
+      group: release-${{ needs.select_platforms.outputs.tag }}
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ needs.select_platforms.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.select_platforms.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Validate Release Tag
+        run: |
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            tag_commit=$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")
+            if [ "$tag_commit" != "$GITHUB_SHA" ]; then
+              echo "::error::Tag $RELEASE_TAG points to a different commit."
+              exit 1
+            fi
+          fi
+      - name: Download Packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: Factr_*
+          path: release-assets
+          merge-multiple: true
+      - name: Generate Checksums
+        working-directory: release-assets
+        run: |
+          sha256sum -- * > ../SHA256SUMS
+          mv ../SHA256SUMS .
+      - name: Create Draft Release
+        run: |
+          gh release create "$RELEASE_TAG" release-assets/* \
+            --target "$GITHUB_SHA" \
+            --title "Factr $RELEASE_VERSION" \
+            --draft \
+            --generate-notes
