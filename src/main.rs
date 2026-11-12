@@ -31,11 +31,19 @@ fn icon() -> egui::IconData {
 
 fn main() -> eframe::Result {
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
+    let config = config::read_from_dot_config()
+        .inspect_err(|e| eprintln!("{}", e))
+        .unwrap_or_default();
     let viewport = egui::ViewportBuilder::default()
         .with_app_id(config::APP_NAME)
         .with_title("Factr.")
         .with_icon(icon())
-        .with_min_inner_size([200.0, 200.0]);
+        .with_min_inner_size([200.0, 200.0])
+        .with_window_level(if config.always_on_top {
+            egui::WindowLevel::AlwaysOnTop
+        } else {
+            egui::WindowLevel::Normal
+        });
     #[cfg(target_os = "macos")]
     let viewport = viewport
         .with_titlebar_shown(false)
@@ -51,14 +59,10 @@ fn main() -> eframe::Result {
     eframe::run_native(
         config::APP_NAME,
         options,
-        Box::new(|cc| {
+        Box::new(move |cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
             FactrApp::setup_fonts(&cc.egui_ctx);
-            Ok(Box::new(FactrApp::init(
-                config::read_from_dot_config()
-                    .inspect_err(|e| eprintln!("{}", e))
-                    .unwrap_or_default(),
-            )))
+            Ok(Box::new(FactrApp::init(config)))
         }),
     )
 }
