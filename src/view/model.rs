@@ -68,18 +68,34 @@ impl SettingsDisplay {
     }
 }
 
-#[derive(Default)]
 pub struct AppDisplay {
     pub filter_search: String,
     pub password: String,
+    pub need_default_focus: bool,
     pub setup_display: Option<SetupDisplay>,
     pub add_ui: bool,
     pub add_display: Option<AccountFieldsDisplay>,
-    pub search_focus: bool,
     pub settings_ui: bool,
     pub settings_display: Option<SettingsDisplay>,
     pub edit_display: Option<EditDisplay>,
     pub sort: AccountSort,
+}
+
+impl Default for AppDisplay {
+    fn default() -> Self {
+        Self {
+            filter_search: Default::default(),
+            password: Default::default(),
+            need_default_focus: true,
+            setup_display: Default::default(),
+            add_ui: Default::default(),
+            add_display: Default::default(),
+            settings_ui: Default::default(),
+            settings_display: Default::default(),
+            edit_display: Default::default(),
+            sort: Default::default(),
+        }
+    }
 }
 
 pub(crate) struct EditDisplay {
@@ -138,10 +154,20 @@ impl AccountFieldsDisplay {
     }
 }
 
-#[derive(Default)]
 pub(crate) struct SetupDisplay {
     pub password: String,
     pub error: Option<String>,
+    pub need_default_focus: bool,
+}
+
+impl Default for SetupDisplay {
+    fn default() -> Self {
+        Self {
+            password: Default::default(),
+            error: Default::default(),
+            need_default_focus: true,
+        }
+    }
 }
 
 #[derive(Default)]

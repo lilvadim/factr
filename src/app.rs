@@ -128,6 +128,7 @@ impl FactrApp {
         self.save_storage()?;
         let _ = self.vault.take();
         self.display.edit_display = None;
+        self.display.need_default_focus = true;
         Ok(())
     }
 
@@ -143,6 +144,7 @@ impl FactrApp {
             })?,
         );
         self.display.password = "".to_string();
+        self.display.need_default_focus = true;
         Ok(())
     }
 
@@ -165,10 +167,16 @@ impl FactrApp {
         ui.strong(t!("setup.remember"));
         ui.add_space(ui.spacing().item_spacing.y * 4f32);
         ui.label(format!("{}:", t!("setup.enter-password")));
-        TextEdit::singleline(&mut setup_display.password)
+        let password = TextEdit::singleline(&mut setup_display.password)
+            .id(egui::Id::unique("setup-password"))
             .hint_text(t!("password"))
             .password(true)
-            .show(ui);
+            .show(ui)
+            .response;
+        if setup_display.need_default_focus {
+            password.request_focus();
+            setup_display.need_default_focus = false;
+        }
         if ui.add(Button::new(t!("ok")).selected(true)).clicked() || Self::form_key(ui, Key::Enter)
         {
             actions.push(UiAction::Setup);
@@ -245,11 +253,14 @@ impl FactrApp {
         let filter = ui.add_sized(
             [width, ui.spacing().interact_size.y],
             TextEdit::singleline(&mut self.display.filter_search)
+                .id(egui::Id::unique("account-search"))
                 .hint_text(format!("{}...", t!("filter-search"))),
         );
-        if self.display.search_focus || ui.input(|i| i.key_pressed(Key::F) && i.modifiers.command) {
+        if self.display.need_default_focus
+            || ui.input(|i| i.key_pressed(Key::F) && i.modifiers.command)
+        {
             filter.request_focus();
-            self.display.search_focus = false;
+            self.display.need_default_focus = false;
         }
     }
 
@@ -631,12 +642,16 @@ impl FactrApp {
             Frame::new().inner_margin(25.0).show(ui, |ui| {
                 ui.heading(format!("{} {}", phosphor::VAULT, t!("vault-locked")));
                 ui.add_space(ui.spacing().item_spacing.y);
-                TextEdit::singleline(&mut self.display.password)
+                let password = TextEdit::singleline(&mut self.display.password)
+                    .id(egui::Id::unique("vault-password"))
                     .hint_text(t!("enter-password"))
                     .password(true)
                     .show(ui)
-                    .response
-                    .request_focus();
+                    .response;
+                if self.display.need_default_focus {
+                    password.request_focus();
+                    self.display.need_default_focus = false;
+                }
                 ui.add_space(ui.spacing().item_spacing.y);
                 if Button::new(RichText::new(t!("unlock-vault")).strong())
                     .selected(true)
@@ -711,7 +726,6 @@ impl FactrApp {
         match action {
             UiAction::UnlockVault => {
                 self.error = self.unlock_vault().err();
-                self.display.search_focus = true;
             }
             UiAction::LockVault => {
                 self.error = self.lock_vault().err();
