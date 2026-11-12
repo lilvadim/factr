@@ -11,7 +11,7 @@ Desktop 2FA TOTP authenticator application.
 - fast
 - minimal
 - secure
-- handcoded
+- mostly handcoded
 - Windows, Linux, macOS
 - written in Rust
 
