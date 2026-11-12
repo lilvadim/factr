@@ -20,6 +20,7 @@ before-packaging-command = "cargo build --release"
 
 [package.metadata.packager.macos]
 minimum-system-version = "11.0"
+signing-identity = "-"
 
 [package.metadata.packager.appimage]
 libs = ["libxkbcommon.so.0"]
