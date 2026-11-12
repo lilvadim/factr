@@ -3,10 +3,26 @@ name: Package Distribution Artifacts
 on:
   workflow_dispatch:
     inputs:
+      build_macos_arm64:
+        description: Build macOS ARM64 DMG
+        type: boolean
+        default: true
       build_macos_intel:
         description: Build macOS Intel DMG
         type: boolean
         default: false
+      build_windows_amd64:
+        description: Build Windows AMD64 installer
+        type: boolean
+        default: true
+      build_linux_amd64:
+        description: Build Linux AMD64 AppImage
+        type: boolean
+        default: true
+      build_linux_arm64:
+        description: Build Linux ARM64 AppImage
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -16,28 +32,38 @@ env:
   APPIMAGE_EXTRACT_AND_RUN: "1"
 
 jobs:
+  select_platforms:
+    name: Select Platforms
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+      enabled: ${{ steps.select.outputs.enabled }}
+    steps:
+      - uses: actions/github-script@v7
+        id: select
+        env:
+          BUILD_INPUTS: ${{ toJSON(inputs) }}
+        with:
+          script: |
+            const inputs = JSON.parse(process.env.BUILD_INPUTS);
+            const platforms = [
+              { input: 'build_macos_arm64', platform: 'macos-arm64', runner: 'macos-15', format: 'dmg', path: 'target/release/*.dmg' },
+              { input: 'build_macos_intel', platform: 'macos-intel', runner: 'macos-15', format: 'dmg', target: 'x86_64-apple-darwin', path: 'target/x86_64-apple-darwin/release/*.dmg' },
+              { input: 'build_windows_amd64', platform: 'windows-amd64', runner: 'windows-2022', format: 'nsis', path: 'target/release/*setup.exe' },
+              { input: 'build_linux_amd64', platform: 'linux-amd64', runner: 'ubuntu-22.04', format: 'appimage', path: 'target/release/*.AppImage' },
+              { input: 'build_linux_arm64', platform: 'linux-arm64', runner: 'ubuntu-22.04-arm', format: 'appimage', path: 'target/release/*.AppImage' },
+            ];
+            const include = platforms.filter(platform => inputs[platform.input]);
+            core.setOutput('matrix', JSON.stringify({ include }));
+            core.setOutput('enabled', include.length > 0);
+
   package_app:
     name: ${{ matrix.platform }}
+    needs: select_platforms
+    if: needs.select_platforms.outputs.enabled == 'true'
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - platform: macos-arm64
-            runner: macos-15
-            format: dmg
-            path: target/release/*.dmg
-          - platform: windows-amd64
-            runner: windows-2022
-            format: nsis
-            path: target/release/*setup.exe
-          - platform: linux-amd64
-            runner: ubuntu-22.04
-            format: appimage
-            path: target/release/*.AppImage
-          - platform: linux-arm64
-            runner: ubuntu-22.04-arm
-            format: appimage
-            path: target/release/*.AppImage
+      matrix: ${{ fromJSON(needs.select_platforms.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v6
@@ -52,26 +78,20 @@ jobs:
           sudo apt-get install -y libx11-dev libxi-dev libxrandr-dev libxcursor-dev libxinerama-dev libxkbcommon-dev libwayland-dev libgl1-mesa-dev libegl1-mesa-dev libvulkan-dev libudev-dev libssl-dev pkg-config patchelf
       - name: Install Packager
         run: cargo install cargo-packager --version 0.11.8 --locked
+      - name: Install Cross-Compilation Target
+        if: matrix.target != ''
+        run: rustup target add ${{ matrix.target }}
       - name: Package Release
+        if: matrix.target == ''
         run: cargo packager --release --formats ${{ matrix.format }}
+      - name: Package Cross-Compiled Release
+        if: matrix.target != ''
+        env:
+          CARGO_BUILD_TARGET: ${{ matrix.target }}
+        run: cargo packager --release --target ${{ matrix.target }} --formats ${{ matrix.format }}
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Factr_${{ matrix.platform }}
           path: ${{ matrix.path }}
-          if-no-files-found: error
-      - name: Install macOS Intel Target
-        if: matrix.platform == 'macos-arm64' && inputs.build_macos_intel
-        run: rustup target add x86_64-apple-darwin
-      - name: Package macOS Intel Release
-        if: matrix.platform == 'macos-arm64' && inputs.build_macos_intel
-        env:
-          CARGO_BUILD_TARGET: x86_64-apple-darwin
-        run: cargo packager --release --target x86_64-apple-darwin --formats dmg
-      - name: Upload macOS Intel Artifact
-        if: matrix.platform == 'macos-arm64' && inputs.build_macos_intel
-        uses: actions/upload-artifact@v4
-        with:
-          name: Factr_macos-intel
-          path: target/x86_64-apple-darwin/release/*.dmg
           if-no-files-found: error
