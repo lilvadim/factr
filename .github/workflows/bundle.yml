@@ -71,7 +71,7 @@ jobs:
             const inputs = JSON.parse(process.env.BUILD_INPUTS);
             const platforms = [
               { input: 'build_macos_arm64', platform: 'macos-arm64', runner: 'macos-15', format: 'dmg', path: 'target/release/*.dmg' },
-              { input: 'build_macos_intel', platform: 'macos-intel', runner: 'macos-15', format: 'dmg', target: 'x86_64-apple-darwin', path: 'target/x86_64-apple-darwin/release/*.dmg' },
+              { input: 'build_macos_intel', platform: 'macos-amd64', runner: 'macos-15', format: 'dmg', target: 'x86_64-apple-darwin', path: 'target/x86_64-apple-darwin/release/*.dmg' },
               { input: 'build_windows_amd64', platform: 'windows-amd64', runner: 'windows-2022', format: 'nsis', path: 'target/release/*setup.exe' },
               { input: 'build_windows_arm64', platform: 'windows-arm64', runner: 'windows-11-arm', format: 'nsis', target: 'aarch64-pc-windows-msvc', path: 'target/aarch64-pc-windows-msvc/release/*setup.exe' },
               { input: 'build_linux_amd64', platform: 'linux-amd64', runner: 'ubuntu-22.04', format: 'appimage', path: 'target/release/*.AppImage' },
@@ -117,11 +117,34 @@ jobs:
         env:
           CARGO_BUILD_TARGET: ${{ matrix.target }}
         run: cargo packager --release --target ${{ matrix.target }} --formats ${{ matrix.format }}
+      - name: Name Package
+        uses: actions/github-script@v7
+        env:
+          PACKAGE_PATH: ${{ matrix.path }}
+          PACKAGE_PLATFORM: ${{ matrix.platform }}
+          PACKAGE_FORMAT: ${{ matrix.format }}
+          PACKAGE_VERSION: ${{ needs.select_platforms.outputs.version }}
+        with:
+          script: |
+            const fs = require('node:fs');
+            const path = require('node:path');
+            const directory = path.dirname(process.env.PACKAGE_PATH);
+            const suffix = path.basename(process.env.PACKAGE_PATH).slice(1);
+            const files = fs.readdirSync(directory).filter(name => name.endsWith(suffix));
+            if (files.length !== 1) {
+              throw new Error(`Expected one package in ${process.env.PACKAGE_PATH}, found ${files.length}`);
+            }
+            const extension = path.extname(files[0]);
+            const installer = process.env.PACKAGE_FORMAT === 'nsis' ? '-setup' : '';
+            const filename = `Factr_${process.env.PACKAGE_VERSION}_${process.env.PACKAGE_PLATFORM}${installer}${extension}`;
+            const outputDirectory = 'target/packages-pipeline-tmp';
+            fs.mkdirSync(outputDirectory, { recursive: true });
+            fs.copyFileSync(path.join(directory, files[0]), path.join(outputDirectory, filename));
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Factr_${{ matrix.platform }}
-          path: ${{ matrix.path }}
+          path: target/packages-pipeline-tmp/*
           if-no-files-found: error
 
   create_release:
