@@ -1611,7 +1611,7 @@ dependencies = [
 
 [[package]]
 name = "factr-auth"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "aes-gcm",
  "argon2",
