@@ -10,7 +10,7 @@
 
 - **macOS:** CryptoKit and Secure Enclave; Touch ID or system password authorizes key agreement. The app derives a wrapping key and decrypts the vault key. The saved Secure Enclave key representation is device-bound; no paid developer account is required.
 - **Linux:** Secret Service stores a random wrapping key; Polkit requests authentication before the app retrieves it. DEB/RPM/Arch packages include the required policy. No TPM is required.
-- **Windows:** recovery-key unlock only; system protection is not implemented yet.
+- **Windows:** Windows Hello signs a random challenge; the signature derives the wrapping key. Credential Manager stores the challenge and encrypted vault key. Requires configured Windows Hello (PIN, fingerprint, or face).
 - Keys protected by other or unknown providers are preserved when saving.
 
 ## Limits

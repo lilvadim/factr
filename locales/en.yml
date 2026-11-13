@@ -54,6 +54,7 @@ add:
 settings:
   close-after-copy: Close after Copy
   always-on-top: Always on Top
+  wayland-unsupported: Not supported on Wayland
   toolbar-labels: Show Labels on Toolbar Buttons
   theme: Theme
   themes:

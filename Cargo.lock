@@ -1697,7 +1697,9 @@ dependencies = [
  "secret-service",
  "serde",
  "serde_json",
+ "sha2",
  "uuid",
+ "windows",
  "zbus",
  "zeroize",
 ]

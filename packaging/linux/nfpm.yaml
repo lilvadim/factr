@@ -18,8 +18,8 @@ contents:
     expand: true
     file_info:
       mode: 0755
-  - src: packaging/linux/factr-auth.desktop
-    dst: /usr/share/applications/factr-auth.desktop
+  - src: packaging/linux/factr.desktop
+    dst: /usr/share/applications/factr.desktop
     file_info:
       mode: 0644
   - src: assets/icon/factr_icon.png

@@ -54,6 +54,7 @@ add:
 settings:
   close-after-copy: Закрыть после копирования
   always-on-top: Поверх всех окон
+  wayland-unsupported: Не поддерживается на Wayland
   toolbar-labels: Показывать надписи на кнопках
   theme: Тема
   themes:

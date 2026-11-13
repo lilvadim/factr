@@ -286,6 +286,19 @@ impl FactrApp {
         btn
     }
 
+    /// Detects a Wayland session once for platform-dependent settings.
+    fn is_wayland() -> bool {
+        #[cfg(target_os = "linux")]
+        {
+            static WAYLAND: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            *WAYLAND.get_or_init(|| {
+                std::env::var("XDG_SESSION_TYPE").is_ok_and(|session| session == "wayland")
+            })
+        }
+        #[cfg(not(target_os = "linux"))]
+        false
+    }
+
     fn display_settings(settings: &mut SettingsDisplay, ui: &mut Ui) -> Vec<UiAction> {
         let mut actions = Vec::new();
         ui.vertical(|ui| {
@@ -298,12 +311,24 @@ impl FactrApp {
             {
                 actions.push(UiAction::UpdateConfiguration);
             }
-            if ui
-                .checkbox(&mut settings.always_on_top, t!("settings.always-on-top"))
-                .clicked()
-            {
-                actions.push(UiAction::UpdateConfiguration);
-            }
+            ui.horizontal(|ui| {
+                let wayland = Self::is_wayland();
+                if ui
+                    .add_enabled(
+                        !wayland,
+                        egui::Checkbox::new(
+                            &mut settings.always_on_top,
+                            t!("settings.always-on-top"),
+                        ),
+                    )
+                    .clicked()
+                {
+                    actions.push(UiAction::UpdateConfiguration);
+                }
+                if wayland {
+                    ui.weak(t!("settings.wayland-unsupported"));
+                }
+            });
             if ui
                 .checkbox(&mut settings.toolbar_labels, t!("settings.toolbar-labels"))
                 .clicked()

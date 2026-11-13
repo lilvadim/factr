@@ -21,6 +21,12 @@
 sudo install -o root -g root -m 0644 crates/system-protection/linux/com.factr.policy /usr/share/polkit-1/actions/com.factr.policy
 ```
 
+## Windows
+
+- Windows Hello signature derives the wrapping key; no authentication-only fallback.
+- Credential Manager persists the challenge and encrypted vault key for the local user.
+- Requires configured Windows Hello; recovery remains available if Hello is reset or unavailable.
+
 ## Tests
 
 - Interactive tests require the platform services and user confirmation:
