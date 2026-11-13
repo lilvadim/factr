@@ -11,7 +11,10 @@ mod app;
 mod config;
 mod encrypted_storage;
 mod phosphor;
+mod recovery;
+mod system_protection;
 mod vault;
+mod vault_access;
 mod view;
 
 rust_i18n::i18n!("locales", fallback = "en");

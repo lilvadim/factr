@@ -28,6 +28,21 @@ setup:
   about-vault: This password will be asked every time you open the app to unlock the vault.
   remember: Remember it!
   enter-password: Enter password
+access:
+  about: Your codes are encrypted with a random key. Keep the recovery key separately to restore or transfer your vault.
+  migrate-title: Upgrade vault protection
+  migrate-about: Enter your old password. After you save the recovery key, V2 replaces V1 without keeping a backup. The old password will no longer unlock this file.
+  continue: Continue
+  recovery-title: Save your recovery key
+  recovery-about: Save this key somewhere safe, separately from the vault. It opens a copy on any supported OS. Without this key or working system protection, access cannot be restored.
+  recovery-saved: I saved the recovery key separately
+  recovery-key: Recovery key
+  use-recovery-key: Use recovery key...
+  enter-recovery: Restore or transfer using your recovery key
+  enable-system: Unlock with system authentication on this device
+  system-unavailable: System protection is unavailable here. The vault can be opened with the recovery key.
+  unlock-system: Unlock with system authentication
+  system-reason: Unlock your Factr vault
 add:
   method: Input Method
   manual-input: Manual Input

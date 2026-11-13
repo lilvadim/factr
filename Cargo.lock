@@ -1611,7 +1611,7 @@ dependencies = [
 
 [[package]]
 name = "factr-auth"
-version = "1.1.2"
+version = "2.0.0"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -1628,6 +1628,7 @@ dependencies = [
  "rust-i18n",
  "serde",
  "serde_json",
+ "tempfile",
  "totp-rs",
  "uuid",
  "winresource",
