@@ -9,11 +9,7 @@ use crate::app::FactrApp;
 
 mod app;
 mod config;
-mod encrypted_storage;
 mod phosphor;
-mod recovery;
-mod system_protection;
-mod vault;
 mod vault_access;
 mod view;
 

@@ -1613,25 +1613,65 @@ dependencies = [
 name = "factr-auth"
 version = "2.0.0"
 dependencies = [
- "aes-gcm",
- "argon2",
- "base64",
  "chrono",
  "eframe",
  "egui",
  "egui_extras",
  "env_logger",
+ "factr-core",
+ "factr-storage",
+ "factr-system-protection",
  "image",
  "qrcode",
- "rand 0.10.3",
  "rqrr",
  "rust-i18n",
+ "serde",
+ "serde_json",
+ "totp-rs",
+ "uuid",
+ "winresource",
+ "zeroize",
+]
+
+[[package]]
+name = "factr-core"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "base64",
+ "chrono",
+ "rand 0.10.3",
+ "serde",
+ "serde_json",
+ "totp-rs",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
+name = "factr-storage"
+version = "0.1.0"
+dependencies = [
+ "argon2",
+ "factr-core",
  "serde",
  "serde_json",
  "tempfile",
  "totp-rs",
  "uuid",
- "winresource",
+ "zeroize",
+]
+
+[[package]]
+name = "factr-system-protection"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "cc",
+ "factr-core",
+ "serde",
+ "serde_json",
+ "uuid",
  "zeroize",
 ]
 

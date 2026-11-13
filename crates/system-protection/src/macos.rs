@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
-use crate::vault::ProtectedVaultKey;
+use factr_core::vault::ProtectedVaultKey;
 
 pub const PROVIDER: &str = "macos.secure-enclave";
 
@@ -26,7 +26,7 @@ struct Request<'a> {
     context: String,
     secret: Option<String>,
     protected_key: Option<String>,
-    reason: String,
+    reason: &'a str,
 }
 
 impl Drop for Request<'_> {
@@ -43,6 +43,7 @@ fn call(
     context: &[u8],
     secret: Option<&[u8]>,
     protected: Option<&str>,
+    reason: &str,
 ) -> Result<Zeroizing<Vec<u8>>, String> {
     #[derive(Deserialize)]
     struct Reply {
@@ -54,7 +55,7 @@ fn call(
         context: BASE64_STANDARD.encode(context),
         secret: secret.map(|bytes| BASE64_STANDARD.encode(bytes)),
         protected_key: protected.map(str::to_owned),
-        reason: rust_i18n::t!("access.system-reason").to_string(),
+        reason,
     };
     let bytes = Zeroizing::new(serde_json::to_vec(&request).map_err(|e| e.to_string())?);
     // The Swift bridge returns a malloc-owned, NUL-terminated JSON reply.
@@ -83,14 +84,14 @@ pub fn device_id() -> Result<String, String> {
     static DEVICE: OnceLock<Result<String, String>> = OnceLock::new();
     DEVICE
         .get_or_init(|| {
-            String::from_utf8(call("available", &[], None, None)?.to_vec())
+            String::from_utf8(call("available", &[], None, None, "")?.to_vec())
                 .map_err(|e| e.to_string())
         })
         .clone()
 }
 
 /// Creates a device-bound protected key using Secure Enclave.
-pub fn protect(id: Uuid, key: &[u8; 32]) -> Result<ProtectedVaultKey, String> {
+pub fn protect(id: Uuid, key: &[u8; 32], reason: &str) -> Result<ProtectedVaultKey, String> {
     let device = device_id()?;
     let mut protected_key = ProtectedVaultKey {
         id: Uuid::new_v4(),
@@ -99,13 +100,23 @@ pub fn protect(id: Uuid, key: &[u8; 32]) -> Result<ProtectedVaultKey, String> {
         metadata: serde_json::json!({"device": device}),
         wrapped_key_b64: String::new(),
     };
-    let protected = call("protect", &protected_key.context(id), Some(key), None)?;
+    let protected = call(
+        "protect",
+        &protected_key.context(id),
+        Some(key),
+        None,
+        reason,
+    )?;
     protected_key.wrapped_key_b64 = BASE64_STANDARD.encode(&*protected);
     Ok(protected_key)
 }
 
 /// Validates a protected key and recovers its key through the native bridge.
-pub fn unlock(id: Uuid, protected_key: &ProtectedVaultKey) -> Result<Zeroizing<[u8; 32]>, String> {
+pub fn unlock(
+    id: Uuid,
+    protected_key: &ProtectedVaultKey,
+    reason: &str,
+) -> Result<Zeroizing<[u8; 32]>, String> {
     if protected_key.provider != PROVIDER || protected_key.version != 1 {
         return Err("Unsupported system protected key".to_string());
     }
@@ -114,6 +125,7 @@ pub fn unlock(id: Uuid, protected_key: &ProtectedVaultKey) -> Result<Zeroizing<[
         &protected_key.context(id),
         None,
         Some(&protected_key.wrapped_key_b64),
+        reason,
     )?;
     let key = <[u8; 32]>::try_from(bytes.as_slice()).map_err(|_| "Invalid system key length")?;
     Ok(Zeroizing::new(key))
@@ -128,9 +140,10 @@ mod tests {
     /// Checks native key protection and authenticated recovery.
     fn native_protection_round_trip() {
         let id = Uuid::new_v4();
-        let key = crate::vault::random_key();
-        let protected_key = protect(id, &key).unwrap();
-        assert!(crate::system_protection::is_local(&protected_key));
-        assert_eq!(*unlock(id, &protected_key).unwrap(), *key);
+        let key = factr_core::vault::random_key();
+        let reason = "Test Factr system protection";
+        let protected_key = protect(id, &key, reason).unwrap();
+        assert!(crate::is_local(&protected_key));
+        assert_eq!(*unlock(id, &protected_key, reason).unwrap(), *key);
     }
 }

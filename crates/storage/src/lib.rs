@@ -1,97 +1,14 @@
-use argon2::{Argon2, password_hash::phc::SaltString};
 use serde::{Deserialize, Serialize};
-use totp_rs::Algorithm;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
-use crate::vault::{self, Account, ProtectedVaultKey, Vault, VaultDecryptError};
+use factr_core::vault::{self, ProtectedVaultKey, Vault, VaultDecryptError};
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct EncryptedAccount {
-    pub id: Uuid,
-    pub created_at: i64,
-    pub modified_at: i64,
-    pub custom_position: usize,
-    pub issuer: Option<String>,
-    pub account_name: String,
-    pub encrypted_secret_b64: String,
-    pub algo: Algorithm,
-    pub digits: usize,
-    pub period: u64,
-}
+mod initialization;
+pub mod migration;
 
-impl EncryptedAccount {
-    /// Decrypts a V1 account into its domain representation.
-    pub fn decrypt(&self, key: &[u8; 32]) -> Result<Account, VaultDecryptError> {
-        let secret = vault::decrypt_bound(&self.encrypted_secret_b64, key, &[])?;
-        let totp = vault::init_totp(
-            self.issuer.to_owned(),
-            self.account_name.to_owned(),
-            self.algo,
-            self.digits,
-            self.period,
-            secret.to_vec(),
-        )
-        .map_err(|e| VaultDecryptError::Other(e.to_string()))?;
-        Ok(Account {
-            id: self.id,
-            totp,
-            created_at: self.created_at,
-            modified_at: self.modified_at,
-            custom_position: self.custom_position,
-        })
-    }
-
-    /// Encodes an account in the V1 storage format.
-    #[cfg(test)]
-    pub fn encrypt_account(
-        account: &crate::vault::Account,
-        key: &[u8; 32],
-    ) -> Result<Self, String> {
-        Ok(Self {
-            id: account.id,
-            created_at: account.created_at,
-            modified_at: account.modified_at,
-            custom_position: account.custom_position,
-            issuer: account.totp.issuer().map(str::to_owned),
-            account_name: account.totp.account_name().to_owned(),
-            encrypted_secret_b64: crate::vault::encrypt_secret(
-                account.totp.secret().as_bytes(),
-                key,
-            )?,
-            algo: account.totp.algorithm(),
-            digits: account.totp.digits().into(),
-            period: account.totp.step(),
-        })
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct LegacyStorageV1 {
-    pub salt_b64: String,
-    pub sealed_check: String,
-    pub accounts: Vec<EncryptedAccount>,
-}
-
-impl LegacyStorageV1 {
-    pub const SEALED_CHECK: &[u8] = b"FACTR_AUTH_CHECK";
-
-    /// Decrypts V1 accounts and creates a vault with a new random key.
-    pub fn decrypt(&self, password: &str) -> Result<Vault, VaultDecryptError> {
-        let master_key =
-            Zeroizing::new(master_key(password, &self.salt_b64).map_err(VaultDecryptError::Other)?);
-        let check_value = vault::decrypt_bound(&self.sealed_check, &master_key, &[])?;
-        if check_value.as_slice() != LegacyStorageV1::SEALED_CHECK {
-            return Err(VaultDecryptError::Other("Wrong Check Value".to_string()));
-        }
-        let accounts: Result<Vec<Account>, VaultDecryptError> = self
-            .accounts
-            .iter()
-            .map(|account| account.decrypt(&master_key))
-            .collect();
-        accounts.map(Vault::create)
-    }
-}
+pub use initialization::{InitializationError, PendingVault};
+use migration::v1::LegacyStorageV1;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "version")]
@@ -176,21 +93,10 @@ impl Storage {
     }
 }
 
-/// Derives the V1 encryption key from the legacy password and encoded salt.
-fn master_key(password: &str, salt_b64: &str) -> Result<[u8; 32], String> {
-    let argon2 = Argon2::default();
-    let salt = SaltString::from_b64(salt_b64).map_err(|e| e.to_string())?;
-    let mut key = [0u8; 32];
-    argon2
-        // V1 derives the key from the encoded salt, not its decoded bytes.
-        .hash_password_into(password.as_bytes(), salt.as_bytes(), &mut key)
-        .map_err(|e| e.to_string())?;
-    Ok(key)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use factr_core::{recovery, vault::Account};
 
     #[test]
     fn storage_round_trip_preserves_accounts() {
@@ -214,7 +120,7 @@ mod tests {
             });
         }
         let (protected_key, recovery) =
-            crate::recovery::create(vault.id, &vault.master_key).unwrap();
+            factr_core::recovery::create(vault.id, &vault.master_key).unwrap();
         vault.protected_keys.push(protected_key);
         let storage = Storage::V2(ProtectedStorageV2::from_vault(&vault).unwrap());
         let json = serde_json::to_string(&storage).unwrap();
@@ -223,7 +129,8 @@ mod tests {
         };
         assert!(!json.contains("Issuer"));
         assert!(!json.contains("user"));
-        let key = crate::recovery::unlock(storage.id, &storage.protected_keys, &recovery).unwrap();
+        let key =
+            factr_core::recovery::unlock(storage.id, &storage.protected_keys, &recovery).unwrap();
         let decrypted = storage.decrypt(key).unwrap();
         assert_eq!(vault.accounts.len(), decrypted.accounts.len());
         for (old, new) in vault.accounts.iter().zip(&decrypted.accounts) {
@@ -242,5 +149,41 @@ mod tests {
                 new.totp.generate(59).to_string()
             );
         }
+    }
+
+    #[test]
+    /// Checks authenticated data and compatibility with unknown providers.
+    fn v2_authenticates_payload_and_preserves_unknown_providers() {
+        let mut vault = Vault::create(Vec::new());
+        let (protected_key, _) = recovery::create(vault.id, &vault.master_key).unwrap();
+        vault.protected_keys.push(protected_key);
+        vault.protected_keys.push(ProtectedVaultKey {
+            id: Uuid::new_v4(),
+            provider: "future-provider".to_string(),
+            version: 42,
+            metadata: serde_json::json!({"opaque": "data"}),
+            wrapped_key_b64: "opaque".to_string(),
+        });
+        let json =
+            serde_json::to_value(Storage::V2(ProtectedStorageV2::from_vault(&vault).unwrap()))
+                .unwrap();
+        let Storage::V2(mut storage) = serde_json::from_value(json).unwrap() else {
+            panic!("Expected V2")
+        };
+        let opened = storage.decrypt(vault.master_key.clone()).unwrap();
+        assert_eq!(opened.protected_keys[1].provider, "future-provider");
+        assert_eq!(opened.protected_keys[1].metadata["opaque"], "data");
+        storage.id = Uuid::new_v4();
+        assert!(storage.decrypt(vault.master_key.clone()).is_err());
+        storage.id = vault.id;
+        let replacement = if storage.encrypted_accounts_b64.starts_with('A') {
+            "B"
+        } else {
+            "A"
+        };
+        storage
+            .encrypted_accounts_b64
+            .replace_range(..1, replacement);
+        assert!(storage.decrypt(vault.master_key.clone()).is_err());
     }
 }

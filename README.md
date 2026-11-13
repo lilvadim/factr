@@ -69,6 +69,31 @@ protection does not guarantee safety on a compromised computer.
 Building on macOS additionally requires the Swift compiler from Xcode or
 Command Line Tools. Other platforms do not compile or link the Swift module.
 
+## Development
+
+The Cargo workspace contains four packages:
+
+```text
+factr-auth                 Desktop UI and unlock orchestration
+crates/core               factr-core: domain models, TOTP, encryption, recovery
+crates/storage            factr-storage: file formats, migration, atomic writes
+crates/system-protection  factr-system-protection: native authentication and Secure Enclave
+```
+
+The application depends on all three libraries. Both `factr-storage` and
+`factr-system-protection` depend on `factr-core`. No library depends on egui.
+Native APIs and Swift compilation are isolated in `factr-system-protection`;
+the application supplies localized authentication prompts. Shared dependency
+versions are declared in the root `Cargo.toml`.
+
+```sh
+cargo run --release
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+The root package remains the default build and packaging target.
+
 ## Screenshots
 
 ![Screenshot](docs/screenshot.png)

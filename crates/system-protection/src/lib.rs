@@ -1,4 +1,4 @@
-use crate::vault::ProtectedVaultKey;
+use factr_core::vault::ProtectedVaultKey;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -28,23 +28,27 @@ pub fn is_local(protected_key: &ProtectedVaultKey) -> bool {
 }
 
 /// Protects a vault key with mandatory system authentication.
-pub fn protect(id: Uuid, key: &[u8; 32]) -> Result<ProtectedVaultKey, String> {
+pub fn protect(id: Uuid, key: &[u8; 32], reason: &str) -> Result<ProtectedVaultKey, String> {
     #[cfg(target_os = "macos")]
-    return macos::protect(id, key);
+    return macos::protect(id, key, reason);
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (id, key);
+        let _ = (id, key, reason);
         Err("System protection is not implemented for this operating system".to_string())
     }
 }
 
 /// Recovers a vault key after system authentication.
-pub fn unlock(id: Uuid, protected_key: &ProtectedVaultKey) -> Result<Zeroizing<[u8; 32]>, String> {
+pub fn unlock(
+    id: Uuid,
+    protected_key: &ProtectedVaultKey,
+    reason: &str,
+) -> Result<Zeroizing<[u8; 32]>, String> {
     #[cfg(target_os = "macos")]
-    return macos::unlock(id, protected_key);
+    return macos::unlock(id, protected_key, reason);
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (id, protected_key);
+        let _ = (id, protected_key, reason);
         Err("This system protection provider is unavailable".to_string())
     }
 }

@@ -1,10 +1,10 @@
 use crate::config;
-use crate::encrypted_storage::{ProtectedStorageV2, Storage};
 use crate::phosphor;
 use crate::view::model::{
     AccountDisplay, AccountFieldsDisplay, AppDisplay, EditDisplay, SettingsDisplay, VaultDisplay,
 };
 use crate::view::widget;
+use factr_storage::{ProtectedStorageV2, Storage};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -22,7 +22,8 @@ use egui::WindowLevel;
 use egui::{Color32, ComboBox, RichText, Stroke, TextEdit};
 use rust_i18n::t;
 
-use crate::{config::Config, vault::Vault, vault_access::VaultAccess};
+use crate::{config::Config, vault_access::VaultAccess};
+use factr_core::vault::Vault;
 
 #[cfg(target_os = "macos")]
 const TRAFFIC_LIGHTS_HEIGHT: f32 = 24.0;

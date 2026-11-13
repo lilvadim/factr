@@ -1,23 +1,20 @@
 use std::{
-    path::{Path, PathBuf},
+    path::Path,
     sync::mpsc::{self, Receiver, TryRecvError},
 };
 
-use uuid::Uuid;
-use zeroize::Zeroizing;
-
-use crate::{
-    encrypted_storage::{ProtectedStorageV2, Storage},
-    recovery, system_protection,
+use factr_core::{
+    recovery,
     vault::{ProtectedVaultKey, Vault},
-    view::model::{VaultAccessAction, VaultAccessDisplay, VaultAccessScreen},
 };
+use factr_storage::{
+    InitializationError, PendingVault, ProtectedStorageV2, Storage, migration::MigrationError,
+};
+use uuid::Uuid;
 
-struct PendingVault {
-    vault: Vault,
-    recovery_key: Zeroizing<String>,
-    source: Option<Vec<u8>>,
-}
+use factr_system_protection as system_protection;
+
+use crate::view::model::{VaultAccessAction, VaultAccessDisplay, VaultAccessScreen};
 
 enum JobResult {
     Prepared(PendingVault),
@@ -178,9 +175,7 @@ impl VaultAccess {
                 }
                 if let Some(pending) = self.pending.take() {
                     self.start(ctx, move || {
-                        if let Err(error) =
-                            replace(&path, pending.source.as_deref(), &pending.vault)
-                        {
+                        if let Err(error) = pending.commit(&path) {
                             return Ok(JobResult::SaveFailed(pending, error));
                         }
                         Ok(JobResult::Unlocked(pending.vault))
@@ -200,9 +195,11 @@ impl VaultAccess {
                     let key = recovery::unlock(storage.id, &storage.protected_keys, &text)?;
                     let mut vault = storage.decrypt(key).map_err(|e| e.to_string())?;
                     if use_system && !vault.protected_keys.iter().any(system_protection::is_local) {
-                        vault
-                            .protected_keys
-                            .push(system_protection::protect(vault.id, &vault.master_key)?);
+                        vault.protected_keys.push(system_protection::protect(
+                            vault.id,
+                            &vault.master_key,
+                            &rust_i18n::t!("access.system-reason"),
+                        )?);
                         Storage::V2(ProtectedStorageV2::from_vault(&vault)?).write(&path)?;
                     }
                     Ok(JobResult::Unlocked(vault))
@@ -218,7 +215,11 @@ impl VaultAccess {
                         .iter()
                         .find(|protected_key| system_protection::is_local(protected_key))
                         .ok_or("No system key for this device; use the recovery key")?;
-                    let key = system_protection::unlock(storage.id, protected_key)?;
+                    let key = system_protection::unlock(
+                        storage.id,
+                        protected_key,
+                        &rust_i18n::t!("access.system-reason"),
+                    )?;
                     storage
                         .decrypt(key)
                         .map(JobResult::Unlocked)
@@ -236,11 +237,19 @@ impl VaultAccess {
                         .cloned();
                     self.start(ctx, move || {
                         let protected_key = if enabled {
-                            Some(system_protection::protect(id, &key)?)
+                            Some(system_protection::protect(
+                                id,
+                                &key,
+                                &rust_i18n::t!("access.system-reason"),
+                            )?)
                         } else {
                             // Removing system protection also requires fresh authorization.
                             if let Some(protected_key) = current {
-                                system_protection::unlock(id, &protected_key)?;
+                                system_protection::unlock(
+                                    id,
+                                    &protected_key,
+                                    &rust_i18n::t!("access.system-reason"),
+                                )?;
                             }
                             None
                         };
@@ -253,152 +262,23 @@ impl VaultAccess {
     }
 }
 
-/// Prepares a new or migrated vault without changing the original file.
+/// Prepares a vault and optionally enrolls system protection.
 fn prepare(path: &Path, password: &str, use_system: bool) -> Result<PendingVault, String> {
-    let source = match std::fs::read(path) {
-        Ok(bytes) => Some(bytes),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-        Err(error) => return Err(error.to_string()),
-    };
-    let mut vault = match source.as_deref() {
-        Some(bytes) => match serde_json::from_slice::<Storage>(bytes).map_err(|e| e.to_string())? {
-            Storage::V1(storage) => storage
-                .decrypt(password)
-                .map_err(|_| rust_i18n::t!("wrong-password").to_string())?,
-            Storage::V2(_) => return Err("The vault is already V2; reopen it".to_string()),
-        },
-        None => Vault::create(Vec::new()),
-    };
-    let (protected_key, recovery_key) = recovery::create(vault.id, &vault.master_key)?;
-    vault.protected_keys.push(protected_key);
+    let mut pending = PendingVault::initialize(path, password).map_err(|error| match error {
+        InitializationError::Migration(MigrationError::Decrypt(_)) => {
+            rust_i18n::t!("wrong-password").to_string()
+        }
+        error => error.to_string(),
+    })?;
     if use_system {
-        vault
+        pending
+            .vault
             .protected_keys
-            .push(system_protection::protect(vault.id, &vault.master_key)?);
+            .push(system_protection::protect(
+                pending.vault.id,
+                &pending.vault.master_key,
+                &rust_i18n::t!("access.system-reason"),
+            )?);
     }
-    Ok(PendingVault {
-        vault,
-        recovery_key,
-        source,
-    })
-}
-
-/// Verifies V2 and replaces the file only if its original contents are unchanged.
-fn replace(path: &PathBuf, source: Option<&[u8]>, vault: &Vault) -> Result<(), String> {
-    let current = match std::fs::read(path) {
-        Ok(bytes) => Some(bytes),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-        Err(error) => return Err(error.to_string()),
-    };
-    if current.as_deref() != source {
-        return Err("The vault changed during migration; cancel and reopen it".to_string());
-    }
-    let storage = ProtectedStorageV2::from_vault(vault)?;
-    // Verify the complete V2 payload before replacing the original file.
-    storage
-        .decrypt(vault.master_key.clone())
-        .map_err(|e| e.to_string())?;
-    Storage::V2(storage).write(path)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::encrypted_storage::{EncryptedAccount, LegacyStorageV1};
-    use argon2::{Argon2, password_hash::phc::SaltString};
-
-    #[test]
-    /// Checks that migration preserves accounts and replaces V1 only on commit.
-    fn migration_requires_password_and_confirmation_and_preserves_accounts() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("vault.json");
-        let salt = SaltString::generate();
-        let mut key = Zeroizing::new([0u8; 32]);
-        Argon2::default()
-            .hash_password_into(b"old-password", salt.as_ref().as_bytes(), &mut *key)
-            .unwrap();
-        let account = crate::vault::Account::from_otp_auth_url(
-            "otpauth://totp/Issuer:user?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&issuer=Issuer",
-            0,
-        )
-        .unwrap();
-        let id = account.id;
-        let legacy = Storage::V1(LegacyStorageV1 {
-            salt_b64: salt.to_string(),
-            sealed_check: crate::vault::encrypt_secret(LegacyStorageV1::SEALED_CHECK, &key)
-                .unwrap(),
-            accounts: vec![EncryptedAccount::encrypt_account(&account, &key).unwrap()],
-        });
-        legacy.write(&path).unwrap();
-        #[cfg(unix)]
-        let path = {
-            let link = directory.path().join("linked-vault.json");
-            std::os::unix::fs::symlink(&path, &link).unwrap();
-            link
-        };
-        let original = std::fs::read(&path).unwrap();
-        assert!(prepare(&path, "wrong", false).is_err());
-        let pending = prepare(&path, "old-password", false).unwrap();
-        assert_eq!(std::fs::read(&path).unwrap(), original);
-        assert_ne!(*pending.vault.master_key, *key);
-        replace(&path, pending.source.as_deref(), &pending.vault).unwrap();
-        assert_eq!(
-            std::fs::read_dir(directory.path()).unwrap().count(),
-            if cfg!(unix) { 2 } else { 1 }
-        );
-        assert!(matches!(
-            Storage::read(&directory.path().join("vault.json")).unwrap(),
-            Storage::V2(_)
-        ));
-        let Storage::V2(storage) = Storage::read(&path).unwrap() else {
-            panic!("Expected V2")
-        };
-        let key =
-            recovery::unlock(storage.id, &storage.protected_keys, &pending.recovery_key).unwrap();
-        let restored = storage.decrypt(key).unwrap();
-        assert_eq!(restored.accounts.len(), 1);
-        let restored = &restored.accounts[0];
-        assert_eq!(restored.id, id);
-        assert_eq!(restored.created_at, account.created_at);
-        assert_eq!(restored.modified_at, account.modified_at);
-        assert_eq!(restored.custom_position, account.custom_position);
-        assert_eq!(restored.totp, account.totp);
-        assert!(replace(&path, pending.source.as_deref(), &pending.vault).is_err());
-    }
-
-    #[test]
-    /// Checks authenticated data and compatibility with unknown providers.
-    fn v2_authenticates_payload_and_preserves_unknown_providers() {
-        let mut vault = Vault::create(Vec::new());
-        let (protected_key, _) = recovery::create(vault.id, &vault.master_key).unwrap();
-        vault.protected_keys.push(protected_key);
-        vault.protected_keys.push(ProtectedVaultKey {
-            id: Uuid::new_v4(),
-            provider: "future-provider".to_string(),
-            version: 42,
-            metadata: serde_json::json!({"opaque": "data"}),
-            wrapped_key_b64: "opaque".to_string(),
-        });
-        let json =
-            serde_json::to_value(Storage::V2(ProtectedStorageV2::from_vault(&vault).unwrap()))
-                .unwrap();
-        let Storage::V2(mut storage) = serde_json::from_value(json).unwrap() else {
-            panic!("Expected V2")
-        };
-        let opened = storage.decrypt(vault.master_key.clone()).unwrap();
-        assert_eq!(opened.protected_keys[1].provider, "future-provider");
-        assert_eq!(opened.protected_keys[1].metadata["opaque"], "data");
-        storage.id = Uuid::new_v4();
-        assert!(storage.decrypt(vault.master_key.clone()).is_err());
-        storage.id = vault.id;
-        let replacement = if storage.encrypted_accounts_b64.starts_with('A') {
-            "B"
-        } else {
-            "A"
-        };
-        storage
-            .encrypted_accounts_b64
-            .replace_range(..1, replacement);
-        assert!(storage.decrypt(vault.master_key.clone()).is_err());
-    }
+    Ok(pending)
 }

@@ -152,7 +152,7 @@ impl Vault {
 }
 
 /// Builds a TOTP instance with support for legacy short secrets.
-pub(crate) fn init_totp(
+pub fn init_totp(
     issuer: Option<String>,
     account_name: String,
     algo: Algorithm,
@@ -179,11 +179,6 @@ pub(crate) fn init_totp(
             .map_err(|e| format!("TOTP Init Error: {e}"))?
     };
     Ok(totp)
-}
-
-#[cfg(test)]
-pub fn encrypt_secret(secret: &[u8], key: &[u8; KEY_LEN]) -> Result<String, String> {
-    encrypt_bound(secret, key, &[])
 }
 
 /// Generates a random 256-bit key in a zeroizing buffer.

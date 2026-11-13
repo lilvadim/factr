@@ -3,7 +3,7 @@ use std::fmt::Write;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
-use crate::{vault, vault::ProtectedVaultKey};
+use crate::vault::{self, ProtectedVaultKey};
 
 const PROVIDER: &str = "recovery";
 

@@ -2,10 +2,8 @@ use egui::ThemePreference;
 use totp_rs::Algorithm;
 use uuid::Uuid;
 
-use crate::{
-    config::{AccountSort, Config},
-    vault::{self, Account, Vault},
-};
+use crate::config::{AccountSort, Config};
+use factr_core::vault::{self, Account, Vault};
 
 pub struct VaultDisplay {
     pub accounts: Vec<AccountDisplay>,
@@ -186,7 +184,7 @@ pub struct VaultAccessDisplay {
 impl Default for VaultAccessDisplay {
     /// Initializes the unlock form with the available system protection.
     fn default() -> Self {
-        let available = crate::system_protection::available();
+        let available = factr_system_protection::available();
         Self {
             screen: VaultAccessScreen::Create,
             input: Default::default(),

@@ -1,0 +1,16 @@
+[package]
+name = "factr-core"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+aes-gcm = "0.11.1"
+base64.workspace = true
+chrono.workspace = true
+rand = "0.10.3"
+serde.workspace = true
+serde_json.workspace = true
+totp-rs.workspace = true
+uuid.workspace = true
+zeroize.workspace = true
