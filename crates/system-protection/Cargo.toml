@@ -15,5 +15,10 @@ base64.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+serde_json.workspace = true
+secret-service = { version = "5.2", features = ["rt-async-io-crypto-rust"] }
+zbus = "5.19"
+
 [build-dependencies]
 cc = "1"

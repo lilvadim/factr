@@ -1,0 +1,65 @@
+name: factr-auth
+arch: ${PACKAGE_ARCH}
+platform: linux
+version: ${PACKAGE_VERSION}
+maintainer: Vadim Mostovoy <vadimmos2002@gmail.com>
+description: Desktop two-factor TOTP authenticator
+homepage: https://github.com/lilvadim/factr
+license: BSD-3-Clause
+section: utils
+priority: optional
+
+archlinux:
+  packager: Vadim Mostovoy <vadimmos2002@gmail.com>
+
+contents:
+  - src: ${PACKAGE_BINARY}
+    dst: /usr/bin/factr-auth
+    expand: true
+    file_info:
+      mode: 0755
+  - src: packaging/linux/factr-auth.desktop
+    dst: /usr/share/applications/factr-auth.desktop
+    file_info:
+      mode: 0644
+  - src: assets/icon/factr_icon.png
+    dst: /usr/share/icons/hicolor/512x512/apps/factr-auth.png
+    file_info:
+      mode: 0644
+  - src: crates/system-protection/linux/com.factr.policy
+    dst: /usr/share/polkit-1/actions/com.factr.policy
+    file_info:
+      mode: 0644
+  - src: LICENSE
+    dst: /usr/share/doc/factr-auth/copyright
+    file_info:
+      mode: 0644
+
+overrides:
+  deb:
+    depends:
+      - libc6 (>= 2.35)
+      - libgcc-s1
+      - libxkbcommon0
+      - polkitd | policykit-1
+      - dbus
+    recommends:
+      - gnome-keyring
+  archlinux:
+    depends:
+      - glibc>=2.35
+      - gcc-libs
+      - libxkbcommon
+      - polkit
+      - dbus
+    suggests:
+      - "gnome-keyring: system unlock through Secret Service"
+  rpm:
+    depends:
+      - glibc >= 2.35
+      - libgcc
+      - libxkbcommon
+      - polkit
+      - dbus
+    recommends:
+      - gnome-keyring

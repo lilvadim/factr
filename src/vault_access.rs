@@ -72,8 +72,7 @@ impl VaultAccess {
         };
         self.display.can_create = !path.exists();
         self.display.need_default_focus = true;
-        self.display.use_system =
-            self.display.system_available && !matches!(self.storage, Some(Storage::V2(_)));
+        self.display.use_system = self.display.system_available;
         self.display.system_enabled = match &self.storage {
             Some(Storage::V2(storage)) => storage
                 .protected_keys

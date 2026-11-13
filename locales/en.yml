@@ -43,6 +43,8 @@ access:
   system-unavailable: System protection is unavailable here. The vault can be opened with the recovery key.
   unlock-system: Unlock with system authentication
   system-reason: Unlock your Factr vault
+  linux-security-warning-title: Linux Security Warning
+  linux-security-warning: Due to the way Secret Service (GNOME Keyring, KWallet) stores the key, other apps running as your user may access your vault without asking for your password or fingerprint.
 add:
   method: Input Method
   manual-input: Manual Input

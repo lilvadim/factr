@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Factr
+Comment=Two-factor authenticator
+Exec=factr-auth
+Icon=factr-auth
+Terminal=false
+Categories=Utility;Security;

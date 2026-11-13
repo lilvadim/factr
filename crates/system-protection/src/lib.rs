@@ -2,6 +2,8 @@ use factr_core::vault::ProtectedVaultKey;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
+#[cfg(target_os = "linux")]
+mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 
@@ -9,7 +11,9 @@ mod macos;
 pub fn available() -> bool {
     #[cfg(target_os = "macos")]
     return macos::device_id().is_ok();
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    return linux::available();
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     false
 }
 
@@ -20,18 +24,22 @@ pub fn is_local(protected_key: &ProtectedVaultKey) -> bool {
         && protected_key.version == 1
         && macos::device_id()
             .is_ok_and(|id| protected_key.metadata["device"].as_str() == Some(&id));
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    return linux::is_local(protected_key);
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
         let _ = protected_key;
         false
     }
 }
 
-/// Protects a vault key with mandatory system authentication.
+/// Protects a vault key using the platform's storage and authentication services.
 pub fn protect(id: Uuid, key: &[u8; 32], reason: &str) -> Result<ProtectedVaultKey, String> {
     #[cfg(target_os = "macos")]
     return macos::protect(id, key, reason);
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    return linux::protect(id, key, reason);
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
         let _ = (id, key, reason);
         Err("System protection is not implemented for this operating system".to_string())
@@ -46,7 +54,9 @@ pub fn unlock(
 ) -> Result<Zeroizing<[u8; 32]>, String> {
     #[cfg(target_os = "macos")]
     return macos::unlock(id, protected_key, reason);
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    return linux::unlock(id, protected_key, reason);
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
         let _ = (id, protected_key, reason);
         Err("This system protection provider is unavailable".to_string())

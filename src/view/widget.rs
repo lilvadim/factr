@@ -145,6 +145,21 @@ fn system_choice(ui: &mut Ui, display: &mut VaultAccessDisplay) {
     } else {
         ui.label(t!("access.system-unavailable"));
     }
+    #[cfg(target_os = "linux")]
+    linux_security_warning(ui);
+}
+
+#[cfg(target_os = "linux")]
+/// Explains the limits of system keyring protection on Linux.
+fn linux_security_warning(ui: &mut Ui) {
+    let title =
+        RichText::new(t!("access.linux-security-warning-title")).color(ui.visuals().warn_fg_color);
+    egui::CollapsingHeader::new(title)
+        .id_salt("linux-security-warning")
+        .default_open(false)
+        .show(ui, |ui| {
+            ui.label(t!("access.linux-security-warning"));
+        });
 }
 
 pub struct SystemProtectionControl<'a>(pub &'a mut VaultAccessDisplay);
@@ -164,6 +179,8 @@ impl Widget for SystemProtectionControl<'_> {
         if let Some(error) = &display.error {
             ui.colored_label(ui.visuals().error_fg_color, error);
         }
+        #[cfg(target_os = "linux")]
+        linux_security_warning(ui);
         response
     }
 }
