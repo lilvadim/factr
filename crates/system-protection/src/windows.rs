@@ -27,6 +27,7 @@ use zeroize::{Zeroize, Zeroizing};
 const PROVIDER: &str = "windows.hello";
 const VERSION: u32 = 1;
 const WRAPPING_KEY_INFO: &[u8] = b"Factr Windows Hello wrapping key V1";
+const SIGN_IN_SETTINGS: &HSTRING = h!("ms-settings:signinoptions");
 const HELLO_CREDENTIAL: &HSTRING = h!("FactrVaultProtectionV1");
 
 #[derive(Serialize, Deserialize)]
@@ -53,18 +54,30 @@ impl Drop for Runtime {
     }
 }
 
-/// Checks Windows Hello availability without displaying authentication UI.
-pub fn available() -> bool {
+/// Checks Windows Hello availability on a WinRT worker thread.
+pub fn check_availability() -> Result<bool, String> {
     std::thread::spawn(|| {
-        let Ok(_runtime) = Runtime::new() else {
-            return false;
-        };
+        let _runtime = Runtime::new()?;
         KeyCredentialManager::IsSupportedAsync()
             .and_then(|operation| operation.join())
-            .unwrap_or(false)
+            .map_err(|error| error.to_string())
     })
     .join()
-    .unwrap_or(false)
+    .map_err(|_| "Windows Hello availability worker stopped".to_string())?
+}
+
+/// Opens the Windows sign-in settings page.
+pub fn open_settings() -> Result<(), String> {
+    let _runtime = Runtime::new()?;
+    let uri =
+        windows::Foundation::Uri::CreateUri(SIGN_IN_SETTINGS).map_err(|error| error.to_string())?;
+    let opened = windows::System::Launcher::LaunchUriAsync(&uri)
+        .and_then(|operation| operation.join())
+        .map_err(|error| error.to_string())?;
+    if !opened {
+        return Err("Windows could not open sign-in settings".to_string());
+    }
+    Ok(())
 }
 
 /// Returns the cached presence of local Credential Manager entries.

@@ -20,6 +20,9 @@ pub(crate) enum VaultSetupResult {
 }
 
 pub(crate) enum VaultAccessResult {
+    SystemAvailability(Result<bool, String>),
+    #[cfg(target_os = "windows")]
+    SystemSettingsOpened,
     Setup(VaultSetupResult),
     Unlocked(Vault),
     SystemProtectionReady {
@@ -142,6 +145,33 @@ impl VaultAccess {
                 let protected_key =
                     set_system_protection(id, &key, current.as_ref(), enabled, &reason)?;
                 Ok(VaultAccessResult::SystemProtectionReady { id, protected_key })
+            },
+            notify,
+        );
+    }
+
+    /// Rechecks system protection without blocking the caller.
+    pub fn check_system_protection_in_background(
+        &mut self,
+        notify: impl FnOnce() + Send + 'static,
+    ) {
+        self.start(
+            move || {
+                Ok(VaultAccessResult::SystemAvailability(
+                    system_protection::check_availability(),
+                ))
+            },
+            notify,
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    /// Opens Windows Hello settings without blocking the caller.
+    pub fn open_system_settings_in_background(&mut self, notify: impl FnOnce() + Send + 'static) {
+        self.start(
+            move || {
+                system_protection::open_settings()?;
+                Ok(VaultAccessResult::SystemSettingsOpened)
             },
             notify,
         );

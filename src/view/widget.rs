@@ -1,7 +1,7 @@
 use crate::phosphor;
 use egui::{
-    ComboBox, DragValue, Frame, Id, Key, Label, Response, RichText, Sense, TextEdit, Ui, UiBuilder,
-    Widget, vec2,
+    Color32, ComboBox, DragValue, Frame, Id, Key, Label, Response, RichText, Sense, TextEdit, Ui,
+    UiBuilder, Widget, vec2,
 };
 use rust_i18n::t;
 use totp_rs::Algorithm;
@@ -21,107 +21,115 @@ impl Widget for VaultAccessForm<'_> {
         Frame::new()
             .inner_margin(25.0)
             .show(ui, |ui| {
-                ui.add_enabled_ui(!display.busy, |ui| match display.screen {
-                    VaultAccessScreen::Setup(
-                        VaultSetupScreen::Create | VaultSetupScreen::Legacy,
-                    ) => {
-                        let legacy =
-                            display.screen == VaultAccessScreen::Setup(VaultSetupScreen::Legacy);
-                        ui.heading(t!(if legacy {
-                            "access.migrate-title"
-                        } else {
-                            "setup.title"
-                        }));
-                        ui.label(t!("access.about"));
-                        if legacy {
-                            ui.label(t!("access.migrate-about"));
-                            access_input(ui, display, "password");
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    ui.add_enabled_ui(!display.busy, |ui| match display.screen {
+                        VaultAccessScreen::Setup(
+                            VaultSetupScreen::Create | VaultSetupScreen::Legacy,
+                        ) => {
+                            let legacy = display.screen
+                                == VaultAccessScreen::Setup(VaultSetupScreen::Legacy);
+                            ui.heading(t!(if legacy {
+                                "access.migrate-title"
+                            } else {
+                                "setup.title"
+                            }));
+                            ui.label(t!("access.about"));
+                            if legacy {
+                                ui.label(t!("access.migrate-about"));
+                                access_input(ui, display, "password");
+                            }
+                            system_protection_option(ui, display);
+                            let can_continue = legacy || display.can_create;
+                            let continue_button = ui.add_enabled(
+                                can_continue,
+                                egui::Button::new(t!("access.continue")).selected(true),
+                            );
+                            let submit = can_continue && form_key(ui, egui::Key::Enter);
+                            if continue_button.clicked() || submit {
+                                display.action =
+                                    Some(VaultAccessAction::Setup(VaultSetupAction::Start));
+                            }
                         }
-                        system_protection_option(ui, display);
-                        let can_continue = legacy || display.can_create;
-                        let continue_button = ui.add_enabled(
-                            can_continue,
-                            egui::Button::new(t!("access.continue")).selected(true),
-                        );
-                        let submit = can_continue && form_key(ui, egui::Key::Enter);
-                        if continue_button.clicked() || submit {
-                            display.action =
-                                Some(VaultAccessAction::Setup(VaultSetupAction::Start));
-                        }
-                    }
-                    VaultAccessScreen::Setup(VaultSetupScreen::ConfirmRecovery) => {
-                        ui.heading(t!("access.recovery-title"));
-                        ui.label(t!("access.recovery-about"));
-                        ui.add(
-                            Label::new(RichText::new(display.recovery_key.as_str()).monospace())
+                        VaultAccessScreen::Setup(VaultSetupScreen::ConfirmRecovery) => {
+                            ui.heading(t!("access.recovery-title"));
+                            ui.label(t!("access.recovery-about"));
+                            ui.add(
+                                Label::new(
+                                    RichText::new(display.recovery_key.as_str()).monospace(),
+                                )
                                 .selectable(true)
                                 .wrap(),
-                        );
-                        ui.checkbox(&mut display.recovery_saved, t!("access.recovery-saved"));
-                        ui.horizontal(|ui| {
-                            if ui.button(t!("cancel")).clicked() || form_key(ui, egui::Key::Escape)
+                            );
+                            ui.checkbox(&mut display.recovery_saved, t!("access.recovery-saved"));
+                            ui.horizontal(|ui| {
+                                if ui.button(t!("cancel")).clicked()
+                                    || form_key(ui, egui::Key::Escape)
+                                {
+                                    display.action =
+                                        Some(VaultAccessAction::Setup(VaultSetupAction::Cancel));
+                                }
+                                if ui
+                                    .add_enabled(
+                                        display.recovery_saved,
+                                        egui::Button::new(t!("save")).selected(true),
+                                    )
+                                    .clicked()
+                                    || (display.recovery_saved && form_key(ui, egui::Key::Enter))
+                                {
+                                    display.action =
+                                        Some(VaultAccessAction::Setup(VaultSetupAction::Complete));
+                                }
+                            });
+                        }
+                        VaultAccessScreen::Locked => {
+                            ui.heading(format!("{} {}", phosphor::VAULT, t!("vault-locked")));
+                            let (can_unlock, label, action) = if display.use_recovery_key {
+                                (
+                                    !display.input.is_empty(),
+                                    t!("unlock-vault"),
+                                    VaultAccessAction::RecoveryUnlock,
+                                )
+                            } else {
+                                (
+                                    display.system_enabled,
+                                    t!("access.unlock-system"),
+                                    VaultAccessAction::SystemUnlock,
+                                )
+                            };
+                            if ui
+                                .add_enabled(can_unlock, egui::Button::new(label).selected(true))
+                                .clicked()
+                                || (can_unlock && form_key(ui, egui::Key::Enter))
                             {
-                                display.action =
-                                    Some(VaultAccessAction::Setup(VaultSetupAction::Cancel));
+                                display.action = Some(action);
                             }
                             if ui
-                                .add_enabled(
-                                    display.recovery_saved,
-                                    egui::Button::new(t!("save")).selected(true),
+                                .checkbox(
+                                    &mut display.use_recovery_key,
+                                    t!("access.use-recovery-key"),
                                 )
-                                .clicked()
-                                || (display.recovery_saved && form_key(ui, egui::Key::Enter))
+                                .changed()
                             {
-                                display.action =
-                                    Some(VaultAccessAction::Setup(VaultSetupAction::Complete));
+                                use zeroize::Zeroize;
+                                display.input.zeroize();
+                                display.need_default_focus = display.use_recovery_key;
                             }
-                        });
+                            if display.use_recovery_key {
+                                ui.label(t!("access.enter-recovery"));
+                                access_input(ui, display, "access.recovery-key");
+                                if !display.system_enabled {
+                                    system_protection_option(ui, display);
+                                }
+                            }
+                        }
+                    });
+                    if display.busy {
+                        ui.spinner();
                     }
-                    VaultAccessScreen::Locked => {
-                        ui.heading(format!("{} {}", phosphor::VAULT, t!("vault-locked")));
-                        let (can_unlock, label, action) = if display.use_recovery_key {
-                            (
-                                !display.input.is_empty(),
-                                t!("unlock-vault"),
-                                VaultAccessAction::RecoveryUnlock,
-                            )
-                        } else {
-                            (
-                                display.system_enabled,
-                                t!("access.unlock-system"),
-                                VaultAccessAction::SystemUnlock,
-                            )
-                        };
-                        if ui
-                            .add_enabled(can_unlock, egui::Button::new(label).selected(true))
-                            .clicked()
-                            || (can_unlock && form_key(ui, egui::Key::Enter))
-                        {
-                            display.action = Some(action);
-                        }
-                        if ui
-                            .checkbox(&mut display.use_recovery_key, t!("access.use-recovery-key"))
-                            .changed()
-                        {
-                            use zeroize::Zeroize;
-                            display.input.zeroize();
-                            display.need_default_focus = display.use_recovery_key;
-                        }
-                        if display.use_recovery_key {
-                            ui.label(t!("access.enter-recovery"));
-                            access_input(ui, display, "access.recovery-key");
-                            if !display.system_enabled {
-                                system_protection_option(ui, display);
-                            }
-                        }
+                    if let Some(error) = &display.error {
+                        ui.colored_label(ui.visuals().error_fg_color, error);
                     }
                 });
-                if display.busy {
-                    ui.spinner();
-                }
-                if let Some(error) = &display.error {
-                    ui.colored_label(ui.visuals().error_fg_color, error);
-                }
             })
             .response
     }
@@ -142,13 +150,91 @@ fn access_input(ui: &mut Ui, display: &mut VaultAccessDisplay, hint: &str) {
     }
 }
 
-/// Shows system protection availability and enrollment options.
-fn system_protection_option(ui: &mut Ui, display: &mut VaultAccessDisplay) {
+const SYSTEM_PROTECTION_GUIDE: &str =
+    "https://github.com/lilvadim/factr/blob/main/user_guide/SYSTEM_PROTECTION_GUIDE.md";
+
+/// Explains the two unlock methods and offers platform setup and a fresh check.
+fn system_protection_info(ui: &mut Ui, display: &mut VaultAccessDisplay) {
+    ui.strong(t!("access.security-title"));
+    ui.label(t!("access.security-intro"));
+    ui.strong(t!("access.security-system-title"));
+    ui.label(t!("access.security-system-about"));
+    ui.strong(t!("access.security-recovery-title"));
+    ui.label(t!("access.security-recovery-about"));
+    ui.label(t!("access.security-recovery-only"));
+    ui.add_space(ui.spacing().item_spacing.y);
+
     if display.system_available {
-        ui.checkbox(&mut display.use_system, t!("access.enable-system"));
+        let color = if ui.visuals().dark_mode {
+            Color32::LIGHT_GREEN
+        } else {
+            Color32::DARK_GREEN
+        };
+        ui.colored_label(
+            color,
+            t!(if cfg!(target_os = "windows") {
+                "access.windows-ready"
+            } else {
+                "access.system-ready"
+            }),
+        );
     } else {
-        ui.label(t!("access.system-unavailable"));
+        ui.label(t!(if cfg!(target_os = "windows") {
+            "access.windows-setup"
+        } else if cfg!(target_os = "linux") {
+            "access.linux-setup"
+        } else {
+            "access.system-unavailable"
+        }));
     }
+    ui.horizontal_wrapped(|ui| {
+        #[cfg(target_os = "windows")]
+        if !display.system_available
+            && ui
+                .add_enabled(
+                    !display.busy,
+                    egui::Link::new(t!("access.open-signin-settings")),
+                )
+                .clicked()
+        {
+            display.action = Some(VaultAccessAction::OpenSystemSettings);
+        }
+        ui.hyperlink_to(t!("access.system-guide"), SYSTEM_PROTECTION_GUIDE);
+        let label = t!(if cfg!(target_os = "windows") {
+            "access.setup-done"
+        } else {
+            "access.check-again"
+        });
+        if ui
+            .add_enabled(!display.busy, egui::Button::new(label))
+            .clicked()
+        {
+            display.action = Some(VaultAccessAction::CheckSystemProtection);
+        }
+    });
+    match &display.system_check {
+        Some(Ok(false)) => {
+            ui.strong(t!(if cfg!(target_os = "windows") {
+                "access.windows-not-ready"
+            } else {
+                "access.system-not-ready"
+            }));
+        }
+        Some(Err(error)) => {
+            ui.strong(t!("access.system-check-failed"));
+            ui.label(error);
+        }
+        _ => {}
+    }
+}
+
+/// Shows enrollment options while creating or recovering a vault.
+fn system_protection_option(ui: &mut Ui, display: &mut VaultAccessDisplay) {
+    system_protection_info(ui, display);
+    ui.add_enabled(
+        display.system_available && !display.busy,
+        egui::Checkbox::new(&mut display.use_system, t!("access.enable-system")),
+    );
     #[cfg(target_os = "linux")]
     linux_security_warning(ui);
 }
@@ -172,6 +258,7 @@ impl Widget for SystemProtectionControl<'_> {
     /// Renders the system protection setting and queues changes.
     fn ui(self, ui: &mut Ui) -> Response {
         let display = self.0;
+        system_protection_info(ui, display);
         let mut enabled = display.system_enabled;
         let response = ui.add_enabled(
             display.system_available && !display.busy,

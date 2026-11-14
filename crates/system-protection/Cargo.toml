@@ -26,6 +26,8 @@ serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.11.1"
 windows = { version = "0.62.2", features = [
+    "Foundation",
+    "System",
     "Security_Credentials",
     "Security_Cryptography",
     "Storage_Streams",

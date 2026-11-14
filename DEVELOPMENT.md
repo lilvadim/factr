@@ -64,3 +64,4 @@ cargo packager --release --formats nsis # Windows
 - The library crates have no egui dependency. Native code stays in system protection.
 - Shared dependency versions are declared in the workspace `Cargo.toml`.
 - Vault protection and limitations: [SECURITY.md](SECURITY.md).
+- Platform setup: [system protection guide](user_guide/SYSTEM_PROTECTION_GUIDE.md).

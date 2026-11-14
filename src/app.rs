@@ -409,19 +409,21 @@ impl FactrApp {
             let mut close_settings = false;
             Window::new(t!("settings-label"))
                 .title_bar(false)
+                .vscroll(true)
                 .open(&mut self.display.settings_ui)
                 .constrain_to(content_rect)
                 .show(ui.ctx(), |ui| {
                     close_settings = ui
                         .add(widget::InnerWindowHeader::new(&t!("settings-label")))
                         .clicked();
+                    ui.add(widget::SystemProtectionControl(&mut self.access_display));
+                    ui.separator();
                     actions.extend(Self::display_settings(
                         self.display
                             .settings_display
                             .get_or_insert(SettingsDisplay::from_config(&self.config)),
                         ui,
                     ));
-                    ui.add(widget::SystemProtectionControl(&mut self.access_display));
                     close_settings |= widget::form_key(ui, Key::Escape);
                 });
             if close_settings {

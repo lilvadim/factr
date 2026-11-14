@@ -168,6 +168,9 @@ pub enum VaultSetupAction {
 }
 
 pub enum VaultAccessAction {
+    CheckSystemProtection,
+    #[cfg(target_os = "windows")]
+    OpenSystemSettings,
     Setup(VaultSetupAction),
     RecoveryUnlock,
     SystemUnlock,
@@ -181,6 +184,7 @@ pub struct VaultAccessDisplay {
     pub recovery_saved: bool,
     pub use_recovery_key: bool,
     pub system_available: bool,
+    pub system_check: Option<Result<bool, String>>,
     pub system_enabled: bool,
     pub use_system: bool,
     pub busy: bool,
@@ -201,6 +205,7 @@ impl Default for VaultAccessDisplay {
             recovery_saved: false,
             use_recovery_key: false,
             system_available: available,
+            system_check: None,
             system_enabled: false,
             use_system: available,
             busy: false,

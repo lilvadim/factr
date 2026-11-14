@@ -63,6 +63,21 @@ impl FactrApp {
     /// Updates application and display state from a completed access operation.
     fn handle_access_result(&mut self, result: Result<VaultAccessResult, String>) {
         match result {
+            Ok(VaultAccessResult::SystemAvailability(result)) => {
+                let available = matches!(result, Ok(true));
+                let became_available = available && !self.access_display.system_available;
+                self.access_display.system_available = available;
+                if self.vault.is_none() {
+                    if !available {
+                        self.access_display.use_system = false;
+                    } else if became_available {
+                        self.access_display.use_system = true;
+                    }
+                }
+                self.access_display.system_check = Some(result);
+            }
+            #[cfg(target_os = "windows")]
+            Ok(VaultAccessResult::SystemSettingsOpened) => {}
             Ok(VaultAccessResult::Setup(result)) => self.handle_setup_result(result),
             Ok(VaultAccessResult::Unlocked(vault)) => self.apply_unlocked_vault(vault),
             Ok(VaultAccessResult::SystemProtectionReady { id, protected_key }) => {
@@ -131,6 +146,13 @@ impl FactrApp {
         let ctx = ctx.clone();
         let notify = move || ctx.request_repaint();
         match action {
+            VaultAccessAction::CheckSystemProtection => {
+                self.access.check_system_protection_in_background(notify)
+            }
+            #[cfg(target_os = "windows")]
+            VaultAccessAction::OpenSystemSettings => {
+                self.access.open_system_settings_in_background(notify)
+            }
             VaultAccessAction::Setup(action) => self.handle_setup_action(action, reason, notify),
             VaultAccessAction::RecoveryUnlock => {
                 let text = std::mem::take(&mut self.access_display.input);
@@ -185,5 +207,50 @@ impl FactrApp {
             }
             VaultSetupAction::Cancel => self.reset_access(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+
+    fn app_without_system_protection() -> FactrApp {
+        let config = Config {
+            storage_file: std::env::temp_dir().join(format!("factr-{}.json", Uuid::new_v4())),
+            ..Config::default()
+        };
+        let mut app = FactrApp::init(config);
+        app.access_display.system_available = false;
+        app.access_display.use_system = false;
+        app
+    }
+
+    #[test]
+    fn availability_check_updates_setup_choice_and_keeps_diagnostics() {
+        let mut app = app_without_system_protection();
+        app.handle_access_result(Ok(VaultAccessResult::SystemAvailability(Ok(true))));
+        assert!(app.access_display.system_available);
+        assert!(app.access_display.use_system);
+        assert!(!app.access_display.system_enabled);
+
+        app.handle_access_result(Ok(VaultAccessResult::SystemAvailability(Err(
+            "service unavailable".to_string(),
+        ))));
+        assert!(!app.access_display.system_available);
+        assert!(!app.access_display.use_system);
+        assert!(matches!(app.access_display.system_check, Some(Err(_))));
+    }
+
+    #[test]
+    fn availability_check_does_not_enroll_an_open_vault() {
+        let mut app = app_without_system_protection();
+        app.vault = Some(Vault::create(Vec::new()));
+        app.handle_access_result(Ok(VaultAccessResult::SystemAvailability(Ok(true))));
+        assert!(app.access_display.system_available);
+        assert!(!app.access_display.system_enabled);
+        assert!(!app.access_display.use_system);
+        assert!(app.vault.as_ref().unwrap().protected_keys.is_empty());
+        assert!(!app.config.storage_file.exists());
     }
 }

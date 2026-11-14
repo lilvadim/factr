@@ -46,25 +46,45 @@ fn device_id() -> Result<&'static str, String> {
         .map_err(Clone::clone)
 }
 
-/// Checks the session keyring and installed authentication policy without prompting.
-pub fn available() -> bool {
-    static AVAILABLE: OnceLock<bool> = OnceLock::new();
-    *AVAILABLE.get_or_init(|| {
-        if !std::path::Path::new(POLICY_PATH).is_file() || device_id().is_err() {
-            return false;
-        }
-        let Ok(connection) = Connection::session() else {
-            return false;
-        };
-        let Ok(bus) = zbus::blocking::fdo::DBusProxy::new(&connection) else {
-            return false;
-        };
-        bus.list_names()
-            .is_ok_and(|names| names.iter().any(|name| name.as_str() == SECRET_SERVICE))
-            || bus
-                .list_activatable_names()
-                .is_ok_and(|names| names.iter().any(|name| name.as_str() == SECRET_SERVICE))
-    })
+/// Checks whether a D-Bus service is running or can be activated.
+fn service_available(connection: &Connection, service: &str) -> Result<bool, String> {
+    let bus = zbus::blocking::fdo::DBusProxy::new(connection).map_err(|error| error.to_string())?;
+    if bus
+        .list_names()
+        .map_err(|error| error.to_string())?
+        .iter()
+        .any(|name| name.as_str() == service)
+    {
+        return Ok(true);
+    }
+    Ok(bus
+        .list_activatable_names()
+        .map_err(|error| error.to_string())?
+        .iter()
+        .any(|name| name.as_str() == service))
+}
+
+/// Rechecks platform prerequisites without prompting or changing the keyring.
+pub fn check_availability() -> Result<bool, String> {
+    if !std::path::Path::new(POLICY_PATH).is_file() {
+        return Err(
+            "Factr's Polkit policy is missing. Install Factr from a DEB, RPM, or Arch package."
+                .to_string(),
+        );
+    }
+    device_id()?;
+    let session = Connection::session().map_err(|error| error.to_string())?;
+    if !service_available(&session, SECRET_SERVICE)? {
+        return Err("Secret Service is unavailable. Configure GNOME Keyring or KWallet, then sign out and back in.".to_string());
+    }
+    let system = Connection::system().map_err(|error| error.to_string())?;
+    if !service_available(&system, POLKIT_SERVICE)? {
+        return Err(
+            "Polkit is unavailable. Check your desktop's system authentication service."
+                .to_string(),
+        );
+    }
+    Ok(true)
 }
 
 /// Matches a Linux protection record to its machine and user.

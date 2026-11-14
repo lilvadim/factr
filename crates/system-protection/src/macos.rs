@@ -80,6 +80,11 @@ fn call(
         .map_err(|e| e.to_string())
 }
 
+/// Checks protection availability using the cached device identifier.
+pub fn check_availability() -> Result<bool, String> {
+    device_id().map(|_| true)
+}
+
 /// Returns the cached device identifier after checking protection availability.
 pub fn device_id() -> Result<String, String> {
     static DEVICE: OnceLock<Result<String, String>> = OnceLock::new();

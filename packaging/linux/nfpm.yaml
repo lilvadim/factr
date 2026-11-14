@@ -44,7 +44,7 @@ overrides:
       - polkitd | policykit-1
       - dbus
     recommends:
-      - gnome-keyring
+      - "gnome-keyring | kwallet6 | libkf5wallet-bin (>= 5.97.0)"
   archlinux:
     depends:
       - glibc>=2.35
@@ -53,7 +53,8 @@ overrides:
       - polkit
       - dbus
     suggests:
-      - "gnome-keyring: system unlock through Secret Service"
+      - "gnome-keyring: system unlock through Secret Service on GNOME and other desktops"
+      - "kwallet: system unlock through Secret Service on KDE Plasma"
   rpm:
     depends:
       - glibc >= 2.35
@@ -62,4 +63,4 @@ overrides:
       - polkit
       - dbus
     recommends:
-      - gnome-keyring
+      - "(gnome-keyring or kf6-kwallet or kf5-kwallet >= 5.97.0)"

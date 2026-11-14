@@ -29,6 +29,24 @@ setup:
   remember: Remember it!
   enter-password: Enter password
 access:
+  security-title: "Vault Security"
+  security-intro: "There are two ways to unlock your vault:"
+  security-system-title: "1. System Protection — recommended for everyday use"
+  security-system-about: "Unlock with your system password, PIN, or biometrics, depending on your device."
+  security-recovery-title: "2. Recovery Key — your backup access"
+  security-recovery-about: "A long code you must save somewhere safe, separately from your vault. Use it to move your vault to another device or restore access if system protection stops working."
+  security-recovery-only: "Without system protection, you will need your recovery key every time you unlock the vault."
+  windows-setup: "Set up Windows Hello to use system protection. A PIN is enough; biometrics are optional."
+  windows-ready: "Windows Hello is ready. System protection is now available."
+  windows-not-ready: "Windows Hello is not available yet. Set it up, then click Done again."
+  linux-setup: "Configure GNOME Keyring or KWallet and your desktop’s Polkit authentication agent, then check again."
+  system-ready: "System protection is available on this device."
+  system-not-ready: "System protection is not available yet. Follow the setup guide, then check again."
+  system-check-failed: "Could not confirm system protection availability:"
+  open-signin-settings: "Open sign-in settings"
+  system-guide: "How to set up system protection"
+  setup-done: "Done"
+  check-again: "Check again"
   about: Your codes are encrypted with a random key. Keep the recovery key separately to restore or transfer your vault.
   migrate-title: Upgrade vault protection
   migrate-about: Enter your old password. After you save the recovery key, V2 replaces V1 without keeping a backup. The old password will no longer unlock this file.

@@ -11,14 +11,25 @@ mod windows;
 
 /// Checks whether system protection is available on this device.
 pub fn available() -> bool {
+    check_availability().unwrap_or(false)
+}
+
+/// Rechecks platform availability and preserves diagnostic errors.
+pub fn check_availability() -> Result<bool, String> {
     #[cfg(target_os = "macos")]
-    return macos::device_id().is_ok();
+    return macos::check_availability();
     #[cfg(target_os = "linux")]
-    return linux::available();
+    return linux::check_availability();
     #[cfg(target_os = "windows")]
-    return windows::available();
+    return windows::check_availability();
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-    false
+    Ok(false)
+}
+
+#[cfg(target_os = "windows")]
+/// Opens platform settings for system authentication.
+pub fn open_settings() -> Result<(), String> {
+    windows::open_settings()
 }
 
 /// Checks whether a protected key belongs to the current device and provider.
