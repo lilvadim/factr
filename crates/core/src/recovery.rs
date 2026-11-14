@@ -1,35 +1,44 @@
 use std::fmt::Write;
-
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
-use crate::vault::{self, ProtectedVaultKey};
+use crate::vault::{self, KEY_LEN, ProtectedVaultKey};
 
 const PROVIDER: &str = "recovery";
+const REC_KEY_PREFIX: &str = "FR2";
+const GROUP_BYTES: usize = 4;
+const HEX_DIGITS_PER_BYTE: usize = 2;
+const HEX_RADIX: u32 = 16;
+const REC_KEY_VERSION: u32 = 1;
 
 /// Generates a recovery key and uses it to protect a vault key.
 pub fn create(
     id: Uuid,
-    vault_key: &[u8; 32],
+    vault_key: &[u8; KEY_LEN],
 ) -> Result<(ProtectedVaultKey, Zeroizing<String>), String> {
     let key = vault::random_key();
-    let mut text = Zeroizing::new(String::from("FR2"));
-    for chunk in key.chunks(4) {
+    let text = bytes_to_text_key(&key);
+    let protected_key_id = Uuid::new_v4();
+    let context = vault::encryption_context(id, protected_key_id, PROVIDER, REC_KEY_VERSION);
+    let protected_key = ProtectedVaultKey {
+        id: protected_key_id,
+        provider: PROVIDER.to_string(),
+        version: REC_KEY_VERSION,
+        metadata: serde_json::Value::Null,
+        wrapped_key_b64: vault::encrypt_bound(vault_key, &key, &context)?,
+    };
+    Ok((protected_key, text))
+}
+
+fn bytes_to_text_key(key: &Zeroizing<[u8; KEY_LEN]>) -> Zeroizing<String> {
+    let mut text = Zeroizing::new(String::from(REC_KEY_PREFIX));
+    for chunk in key.chunks(GROUP_BYTES) {
         text.push('-');
         for byte in chunk {
             write!(&mut *text, "{byte:02X}").unwrap();
         }
     }
-    let mut protected_key = ProtectedVaultKey {
-        id: Uuid::new_v4(),
-        provider: PROVIDER.to_string(),
-        version: 1,
-        metadata: serde_json::Value::Null,
-        wrapped_key_b64: String::new(),
-    };
-    protected_key.wrapped_key_b64 =
-        vault::encrypt_bound(vault_key, &key, &protected_key.context(id))?;
-    Ok((protected_key, text))
+    text
 }
 
 /// Recovers a vault key using a validated recovery key.
@@ -37,39 +46,54 @@ pub fn unlock(
     id: Uuid,
     protected_keys: &[ProtectedVaultKey],
     text: &str,
-) -> Result<Zeroizing<[u8; 32]>, String> {
+) -> Result<Zeroizing<[u8; KEY_LEN]>, String> {
     let text = Zeroizing::new(text.trim().to_ascii_uppercase());
     let text = text
-        .strip_prefix("FR2-")
+        .strip_prefix(&format!("{REC_KEY_PREFIX}-"))
         .ok_or("Invalid recovery key format")?;
     let digits = Zeroizing::new(
         text.chars()
             .filter(|c| *c != '-' && !c.is_whitespace())
             .collect::<String>(),
     );
-    if digits.len() != 64 || !digits.bytes().all(|c| c.is_ascii_hexdigit()) {
+    if digits.len() != KEY_LEN * HEX_DIGITS_PER_BYTE
+        || !digits.bytes().all(|c| c.is_ascii_hexdigit())
+    {
         return Err("Invalid recovery key format".to_string());
     }
-    let mut key = Zeroizing::new([0u8; 32]);
-    for (index, byte) in key.iter_mut().enumerate() {
-        *byte =
-            u8::from_str_radix(&digits[index * 2..index * 2 + 2], 16).map_err(|e| e.to_string())?;
-    }
+    let key = text_to_bytes_key(digits)?;
     for protected_key in protected_keys
         .iter()
-        .filter(|s| s.provider == PROVIDER && s.version == 1)
+        .filter(|s| s.provider == PROVIDER && s.version == REC_KEY_VERSION)
     {
         if let Ok(bytes) = vault::decrypt_bound(
             &protected_key.wrapped_key_b64,
             &key,
-            &protected_key.context(id),
+            &vault::encryption_context(
+                id,
+                protected_key.id,
+                &protected_key.provider,
+                protected_key.version,
+            ),
         ) {
-            let key =
-                <[u8; 32]>::try_from(bytes.as_slice()).map_err(|_| "Invalid vault key length")?;
+            let key = <[u8; KEY_LEN]>::try_from(bytes.as_slice())
+                .map_err(|_| "Invalid vault key length")?;
             return Ok(Zeroizing::new(key));
         }
     }
     Err("Incorrect recovery key or damaged protected key".to_string())
+}
+
+fn text_to_bytes_key(digits: Zeroizing<String>) -> Result<Zeroizing<[u8; KEY_LEN]>, String> {
+    let mut key = Zeroizing::new([0u8; KEY_LEN]);
+    for (index, byte) in key.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(
+            &digits[index * HEX_DIGITS_PER_BYTE..(index + 1) * HEX_DIGITS_PER_BYTE],
+            HEX_RADIX,
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(key)
 }
 
 #[cfg(test)]

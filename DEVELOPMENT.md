@@ -51,6 +51,8 @@ cargo packager --release --formats nsis # Windows
 | Path | Responsibility |
 | --- | --- |
 | `src/` | Application, configuration, unlock orchestration |
+| `src/app.rs`, `src/app/` | UI composition, action handlers, display updates |
+| `src/vault_access.rs` | Vault access operations and background jobs, independent of egui |
 | `src/view/` | egui widgets and view models |
 | `crates/core/` | Domain models, TOTP, encryption, recovery keys |
 | `crates/storage/` | File formats, migration, atomic writes |

@@ -3,6 +3,9 @@ import Foundation
 import LocalAuthentication
 import Security
 
+private let wrappingKeyLength = 32
+private let wrappingKeyInfo = Data("Factr system protection v1".utf8)
+
 private struct ProtectedKey: Codable {
     let device: String
     let key: Data
@@ -51,7 +54,7 @@ private func open(_ protected: ProtectedKey, context: Data, reason: String) thro
     let shared = try key.sharedSecretFromKeyAgreement(with: peer)
     let wrappingKey = shared.hkdfDerivedSymmetricKey(
         using: SHA256.self, salt: context,
-        sharedInfo: Data("Factr system protection v1".utf8), outputByteCount: 32
+        sharedInfo: wrappingKeyInfo, outputByteCount: wrappingKeyLength
     )
     return try AES.GCM.open(AES.GCM.SealedBox(combined: protected.sealed), using: wrappingKey, authenticating: context)
 }
@@ -85,7 +88,7 @@ private func execute(_ request: Request) throws -> Data {
         let shared = try ephemeral.sharedSecretFromKeyAgreement(with: key.publicKey)
         let wrappingKey = shared.hkdfDerivedSymmetricKey(
             using: SHA256.self, salt: request.context,
-            sharedInfo: Data("Factr system protection v1".utf8), outputByteCount: 32
+            sharedInfo: wrappingKeyInfo, outputByteCount: wrappingKeyLength
         )
         let sealed = try AES.GCM.seal(secret, using: wrappingKey, authenticating: request.context)
         let protected = ProtectedKey(

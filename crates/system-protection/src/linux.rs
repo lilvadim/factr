@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fs, sync::OnceLock};
 
-use factr_core::vault::{self, ProtectedVaultKey};
+use factr_core::vault::{self, KEY_LEN, ProtectedVaultKey};
 use secret_service::{EncryptionType, blocking::SecretService};
 use uuid::Uuid;
 use zbus::{
@@ -10,8 +10,18 @@ use zbus::{
 use zeroize::Zeroizing;
 
 const PROVIDER: &str = "linux-secret-service";
+const VERSION: u32 = 1;
+const SECRET_SERVICE: &str = "org.freedesktop.secrets";
+const ALLOW_USER_INTERACTION: u32 = 1;
 const ACTION: &str = "com.factr.unlock";
 const POLICY_PATH: &str = "/usr/share/polkit-1/actions/com.factr.policy";
+const POLKIT_SERVICE: &str = "org.freedesktop.PolicyKit1";
+const POLKIT_AUTHORITY_PATH: &str = "/org/freedesktop/PolicyKit1/Authority";
+const POLKIT_AUTHORITY_INTERFACE: &str = "org.freedesktop.PolicyKit1.Authority";
+const POLKIT_CHECK_AUTHORIZATION: &str = "CheckAuthorization";
+const POLKIT_SUBJECT_KIND: &str = "system-bus-name";
+const POLKIT_SUBJECT_NAME: &str = "name";
+const POLKIT_NO_CANCELLATION_ID: &str = "";
 
 /// Identifies the current machine and session user without exposing secrets.
 fn device_id() -> Result<&'static str, String> {
@@ -49,22 +59,18 @@ pub fn available() -> bool {
         let Ok(bus) = zbus::blocking::fdo::DBusProxy::new(&connection) else {
             return false;
         };
-        bus.list_names().is_ok_and(|names| {
-            names
-                .iter()
-                .any(|name| name.as_str() == "org.freedesktop.secrets")
-        }) || bus.list_activatable_names().is_ok_and(|names| {
-            names
-                .iter()
-                .any(|name| name.as_str() == "org.freedesktop.secrets")
-        })
+        bus.list_names()
+            .is_ok_and(|names| names.iter().any(|name| name.as_str() == SECRET_SERVICE))
+            || bus
+                .list_activatable_names()
+                .is_ok_and(|names| names.iter().any(|name| name.as_str() == SECRET_SERVICE))
     })
 }
 
 /// Matches a Linux protection record to its machine and user.
 pub fn is_local(protected_key: &ProtectedVaultKey) -> bool {
     protected_key.provider == PROVIDER
-        && protected_key.version == 1
+        && protected_key.version == VERSION
         && device_id().is_ok_and(|device| protected_key.metadata["device"].as_str() == Some(device))
 }
 
@@ -73,19 +79,28 @@ fn authenticate() -> Result<(), String> {
     let connection = Connection::system().map_err(|e| e.to_string())?;
     let proxy = Proxy::new(
         &connection,
-        "org.freedesktop.PolicyKit1",
-        "/org/freedesktop/PolicyKit1/Authority",
-        "org.freedesktop.PolicyKit1.Authority",
+        POLKIT_SERVICE,
+        POLKIT_AUTHORITY_PATH,
+        POLKIT_AUTHORITY_INTERFACE,
     )
     .map_err(|e| e.to_string())?;
     let name = connection.unique_name().ok_or("Missing system bus name")?;
     let subject = (
-        "system-bus-name",
-        HashMap::from([("name", Value::from(name.as_str()))]),
+        POLKIT_SUBJECT_KIND,
+        HashMap::from([(POLKIT_SUBJECT_NAME, Value::from(name.as_str()))]),
     );
     let details = HashMap::<&str, &str>::new();
     let (authorized, _, _): (bool, bool, HashMap<String, String>) = proxy
-        .call("CheckAuthorization", &(subject, ACTION, details, 1u32, ""))
+        .call(
+            POLKIT_CHECK_AUTHORIZATION,
+            &(
+                subject,
+                ACTION,
+                details,
+                ALLOW_USER_INTERACTION,
+                POLKIT_NO_CANCELLATION_ID,
+            ),
+        )
         .map_err(|e| format!("System authentication failed: {e}"))?;
     if !authorized {
         return Err("System authentication was denied or cancelled".to_string());
@@ -103,18 +118,18 @@ fn attributes<'a>(vault: &'a str, entry: &'a str) -> HashMap<&'a str, &'a str> {
 }
 
 /// Encrypts a vault key with a random wrapping key held by Secret Service.
-pub fn protect(id: Uuid, key: &[u8; 32], _reason: &str) -> Result<ProtectedVaultKey, String> {
+pub fn protect(id: Uuid, key: &[u8; KEY_LEN], _reason: &str) -> Result<ProtectedVaultKey, String> {
     authenticate()?;
-    let mut protected_key = ProtectedVaultKey {
-        id: Uuid::new_v4(),
-        provider: PROVIDER.to_string(),
-        version: 1,
-        metadata: serde_json::json!({"device": device_id()?}),
-        wrapped_key_b64: String::new(),
-    };
     let wrapping_key = vault::random_key();
-    protected_key.wrapped_key_b64 =
-        vault::encrypt_bound(key, &wrapping_key, &protected_key.context(id))?;
+    let protected_key_id = Uuid::new_v4();
+    let context = vault::encryption_context(id, protected_key_id, PROVIDER, VERSION);
+    let protected_key = ProtectedVaultKey {
+        id: protected_key_id,
+        provider: PROVIDER.to_string(),
+        version: VERSION,
+        metadata: serde_json::json!({"device": device_id()?}),
+        wrapped_key_b64: vault::encrypt_bound(key, &wrapping_key, &context)?,
+    };
     let service = SecretService::connect(EncryptionType::Dh).map_err(|e| e.to_string())?;
     let collection = match service.get_default_collection() {
         Ok(collection) => collection,
@@ -141,7 +156,7 @@ pub fn unlock(
     id: Uuid,
     protected_key: &ProtectedVaultKey,
     _reason: &str,
-) -> Result<Zeroizing<[u8; 32]>, String> {
+) -> Result<Zeroizing<[u8; KEY_LEN]>, String> {
     if !is_local(protected_key) {
         return Err("Unsupported or non-local system protected key".to_string());
     }
@@ -158,16 +173,21 @@ pub fn unlock(
     item.unlock().map_err(|e| e.to_string())?;
     let secret = Zeroizing::new(item.get_secret().map_err(|e| e.to_string())?);
     let wrapping_key = Zeroizing::new(
-        <[u8; 32]>::try_from(secret.as_slice()).map_err(|_| "Invalid system key length")?,
+        <[u8; KEY_LEN]>::try_from(secret.as_slice()).map_err(|_| "Invalid system key length")?,
     );
     let bytes = vault::decrypt_bound(
         &protected_key.wrapped_key_b64,
         &wrapping_key,
-        &protected_key.context(id),
+        &vault::encryption_context(
+            id,
+            protected_key.id,
+            &protected_key.provider,
+            protected_key.version,
+        ),
     )
     .map_err(|e| e.to_string())?;
     Ok(Zeroizing::new(
-        <[u8; 32]>::try_from(bytes.as_slice()).map_err(|_| "Invalid vault key length")?,
+        <[u8; KEY_LEN]>::try_from(bytes.as_slice()).map_err(|_| "Invalid vault key length")?,
     ))
 }
 

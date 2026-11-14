@@ -9,7 +9,7 @@ use totp_rs::Algorithm;
 use crate::config::{AccountSort, SortField};
 use crate::view::model::{
     AccountDisplay, AccountFieldsDisplay, AddMethod, ManualInput, ManualInputExtra,
-    VaultAccessAction, VaultAccessDisplay, VaultAccessScreen,
+    VaultAccessAction, VaultAccessDisplay, VaultAccessScreen, VaultSetupAction, VaultSetupScreen,
 };
 
 pub struct VaultAccessForm<'a>(pub &'a mut VaultAccessDisplay);
@@ -22,8 +22,11 @@ impl Widget for VaultAccessForm<'_> {
             .inner_margin(25.0)
             .show(ui, |ui| {
                 ui.add_enabled_ui(!display.busy, |ui| match display.screen {
-                    VaultAccessScreen::Create | VaultAccessScreen::Legacy => {
-                        let legacy = display.screen == VaultAccessScreen::Legacy;
+                    VaultAccessScreen::Setup(
+                        VaultSetupScreen::Create | VaultSetupScreen::Legacy,
+                    ) => {
+                        let legacy =
+                            display.screen == VaultAccessScreen::Setup(VaultSetupScreen::Legacy);
                         ui.heading(t!(if legacy {
                             "access.migrate-title"
                         } else {
@@ -34,19 +37,19 @@ impl Widget for VaultAccessForm<'_> {
                             ui.label(t!("access.migrate-about"));
                             access_input(ui, display, "password");
                         }
-                        system_choice(ui, display);
-                        if ui
-                            .add_enabled(
-                                legacy || display.can_create,
-                                egui::Button::new(t!("access.continue")).selected(true),
-                            )
-                            .clicked()
-                            || ((legacy || display.can_create) && form_key(ui, egui::Key::Enter))
-                        {
-                            display.action = Some(VaultAccessAction::Prepare);
+                        system_protection_option(ui, display);
+                        let can_continue = legacy || display.can_create;
+                        let continue_button = ui.add_enabled(
+                            can_continue,
+                            egui::Button::new(t!("access.continue")).selected(true),
+                        );
+                        let submit = can_continue && form_key(ui, egui::Key::Enter);
+                        if continue_button.clicked() || submit {
+                            display.action =
+                                Some(VaultAccessAction::Setup(VaultSetupAction::Start));
                         }
                     }
-                    VaultAccessScreen::ConfirmRecovery => {
+                    VaultAccessScreen::Setup(VaultSetupScreen::ConfirmRecovery) => {
                         ui.heading(t!("access.recovery-title"));
                         ui.label(t!("access.recovery-about"));
                         ui.add(
@@ -58,7 +61,8 @@ impl Widget for VaultAccessForm<'_> {
                         ui.horizontal(|ui| {
                             if ui.button(t!("cancel")).clicked() || form_key(ui, egui::Key::Escape)
                             {
-                                display.action = Some(VaultAccessAction::Cancel);
+                                display.action =
+                                    Some(VaultAccessAction::Setup(VaultSetupAction::Cancel));
                             }
                             if ui
                                 .add_enabled(
@@ -68,32 +72,32 @@ impl Widget for VaultAccessForm<'_> {
                                 .clicked()
                                 || (display.recovery_saved && form_key(ui, egui::Key::Enter))
                             {
-                                display.action = Some(VaultAccessAction::Confirm);
+                                display.action =
+                                    Some(VaultAccessAction::Setup(VaultSetupAction::Complete));
                             }
                         });
                     }
                     VaultAccessScreen::Locked => {
                         ui.heading(format!("{} {}", phosphor::VAULT, t!("vault-locked")));
-                        let can_unlock = if display.use_recovery_key {
-                            !display.input.is_empty()
+                        let (can_unlock, label, action) = if display.use_recovery_key {
+                            (
+                                !display.input.is_empty(),
+                                t!("unlock-vault"),
+                                VaultAccessAction::RecoveryUnlock,
+                            )
                         } else {
-                            display.system_enabled
-                        };
-                        let label = if display.use_recovery_key || !display.system_enabled {
-                            t!("unlock-vault")
-                        } else {
-                            t!("access.unlock-system")
+                            (
+                                display.system_enabled,
+                                t!("access.unlock-system"),
+                                VaultAccessAction::SystemUnlock,
+                            )
                         };
                         if ui
                             .add_enabled(can_unlock, egui::Button::new(label).selected(true))
                             .clicked()
                             || (can_unlock && form_key(ui, egui::Key::Enter))
                         {
-                            display.action = Some(if display.use_recovery_key {
-                                VaultAccessAction::UnlockRecovery
-                            } else {
-                                VaultAccessAction::UnlockSystem
-                            });
+                            display.action = Some(action);
                         }
                         if ui
                             .checkbox(&mut display.use_recovery_key, t!("access.use-recovery-key"))
@@ -107,7 +111,7 @@ impl Widget for VaultAccessForm<'_> {
                             ui.label(t!("access.enter-recovery"));
                             access_input(ui, display, "access.recovery-key");
                             if !display.system_enabled {
-                                system_choice(ui, display);
+                                system_protection_option(ui, display);
                             }
                         }
                     }
@@ -139,7 +143,7 @@ fn access_input(ui: &mut Ui, display: &mut VaultAccessDisplay, hint: &str) {
 }
 
 /// Shows system protection availability and enrollment options.
-fn system_choice(ui: &mut Ui, display: &mut VaultAccessDisplay) {
+fn system_protection_option(ui: &mut Ui, display: &mut VaultAccessDisplay) {
     if display.system_available {
         ui.checkbox(&mut display.use_system, t!("access.enable-system"));
     } else {

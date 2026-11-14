@@ -1,6 +1,6 @@
 [package]
 name = "factr-auth"
-version = "2.0.0"
+version.workspace = true
 edition = "2024"
 description = "TOTP authenticator app"
 repository = "https://github.com/lilvadim/factr"
@@ -9,6 +9,9 @@ repository = "https://github.com/lilvadim/factr"
 members = ["crates/core", "crates/storage", "crates/system-protection"]
 default-members = ["."]
 resolver = "3"
+
+[workspace.package]
+version = "2.0.0"
 
 [workspace.dependencies]
 factr-core = { path = "crates/core" }

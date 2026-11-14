@@ -1,4 +1,4 @@
-use factr_core::vault::ProtectedVaultKey;
+use factr_core::vault::{KEY_LEN, ProtectedVaultKey};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -25,7 +25,7 @@ pub fn available() -> bool {
 pub fn is_local(protected_key: &ProtectedVaultKey) -> bool {
     #[cfg(target_os = "macos")]
     return protected_key.provider == macos::PROVIDER
-        && protected_key.version == 1
+        && protected_key.version == macos::VERSION
         && macos::device_id()
             .is_ok_and(|id| protected_key.metadata["device"].as_str() == Some(&id));
     #[cfg(target_os = "linux")]
@@ -40,7 +40,7 @@ pub fn is_local(protected_key: &ProtectedVaultKey) -> bool {
 }
 
 /// Protects a vault key using the platform's storage and authentication services.
-pub fn protect(id: Uuid, key: &[u8; 32], reason: &str) -> Result<ProtectedVaultKey, String> {
+pub fn protect(id: Uuid, key: &[u8; KEY_LEN], reason: &str) -> Result<ProtectedVaultKey, String> {
     #[cfg(target_os = "macos")]
     return macos::protect(id, key, reason);
     #[cfg(target_os = "linux")]
@@ -59,7 +59,7 @@ pub fn unlock(
     id: Uuid,
     protected_key: &ProtectedVaultKey,
     reason: &str,
-) -> Result<Zeroizing<[u8; 32]>, String> {
+) -> Result<Zeroizing<[u8; KEY_LEN]>, String> {
     #[cfg(target_os = "macos")]
     return macos::unlock(id, protected_key, reason);
     #[cfg(target_os = "linux")]

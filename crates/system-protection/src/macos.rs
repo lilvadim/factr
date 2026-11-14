@@ -8,9 +8,10 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
-use factr_core::vault::ProtectedVaultKey;
+use factr_core::vault::{self, KEY_LEN, ProtectedVaultKey};
 
 pub const PROVIDER: &str = "macos.secure-enclave";
+pub const VERSION: u32 = 1;
 
 unsafe extern "C" {
     /// Executes a native request and returns an owned JSON reply.
@@ -91,23 +92,18 @@ pub fn device_id() -> Result<String, String> {
 }
 
 /// Creates a device-bound protected key using Secure Enclave.
-pub fn protect(id: Uuid, key: &[u8; 32], reason: &str) -> Result<ProtectedVaultKey, String> {
+pub fn protect(id: Uuid, key: &[u8; KEY_LEN], reason: &str) -> Result<ProtectedVaultKey, String> {
     let device = device_id()?;
-    let mut protected_key = ProtectedVaultKey {
-        id: Uuid::new_v4(),
+    let protected_key_id = Uuid::new_v4();
+    let context = vault::encryption_context(id, protected_key_id, PROVIDER, VERSION);
+    let protected = call("protect", &context, Some(key), None, reason)?;
+    let protected_key = ProtectedVaultKey {
+        id: protected_key_id,
         provider: PROVIDER.to_string(),
-        version: 1,
+        version: VERSION,
         metadata: serde_json::json!({"device": device}),
-        wrapped_key_b64: String::new(),
+        wrapped_key_b64: BASE64_STANDARD.encode(&*protected),
     };
-    let protected = call(
-        "protect",
-        &protected_key.context(id),
-        Some(key),
-        None,
-        reason,
-    )?;
-    protected_key.wrapped_key_b64 = BASE64_STANDARD.encode(&*protected);
     Ok(protected_key)
 }
 
@@ -116,18 +112,24 @@ pub fn unlock(
     id: Uuid,
     protected_key: &ProtectedVaultKey,
     reason: &str,
-) -> Result<Zeroizing<[u8; 32]>, String> {
-    if protected_key.provider != PROVIDER || protected_key.version != 1 {
+) -> Result<Zeroizing<[u8; KEY_LEN]>, String> {
+    if protected_key.provider != PROVIDER || protected_key.version != VERSION {
         return Err("Unsupported system protected key".to_string());
     }
     let bytes = call(
         "unlock",
-        &protected_key.context(id),
+        &vault::encryption_context(
+            id,
+            protected_key.id,
+            &protected_key.provider,
+            protected_key.version,
+        ),
         None,
         Some(&protected_key.wrapped_key_b64),
         reason,
     )?;
-    let key = <[u8; 32]>::try_from(bytes.as_slice()).map_err(|_| "Invalid system key length")?;
+    let key =
+        <[u8; KEY_LEN]>::try_from(bytes.as_slice()).map_err(|_| "Invalid system key length")?;
     Ok(Zeroizing::new(key))
 }
 

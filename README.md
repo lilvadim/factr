@@ -27,7 +27,7 @@ brew install --cask factr
 - Windows: 10/11 x64/ARM64
 - Linux 64-bit: amd64/arm64 glibc 2.35+ (Ubuntu 22.04+, Debian 12+)
 
-[Download from Releases Page](https://github.com/lilvadim/factr/releases)
+[Download from Releases Page](https://github.com/lilvadim/factr/releases/latest)
 
 #### Ubuntu/Debian Based (DEB)
 

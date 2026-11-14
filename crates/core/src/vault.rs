@@ -10,8 +10,9 @@ use serde::{Deserialize, Serialize};
 use totp_rs::{Algorithm, Builder, Secret, Totp};
 use zeroize::Zeroizing;
 
+const LEGACY_SECRET_LEN: usize = 10;
 const NONCE_LEN: usize = 12;
-const KEY_LEN: usize = 32;
+pub const KEY_LEN: usize = 32;
 
 pub const DEFAULT_ALGO: Algorithm = Algorithm::SHA1;
 pub const DEFAULT_DIGITS: usize = 6;
@@ -120,16 +121,15 @@ pub struct ProtectedVaultKey {
     pub wrapped_key_b64: String,
 }
 
-impl ProtectedVaultKey {
-    /// Binds encryption to the vault, protected key, and provider version.
-    pub fn context(&self, vault_id: Uuid) -> Vec<u8> {
-        // Keep the authenticated label stable for existing V2 files.
-        format!(
-            "Factr V2 key slot:{vault_id}:{}:{}:{}",
-            self.id, self.provider, self.version
-        )
-        .into_bytes()
-    }
+/// Binds encryption to the vault, protected key, and provider version.
+pub fn encryption_context(
+    vault_id: Uuid,
+    protected_key_id: Uuid,
+    provider: &str,
+    version: u32,
+) -> Vec<u8> {
+    // Keep the authenticated label stable for existing V2 files.
+    format!("Factr V2 key slot:{vault_id}:{protected_key_id}:{provider}:{version}").into_bytes()
 }
 
 pub struct Vault {
@@ -161,7 +161,7 @@ pub fn init_totp(
     secret: Vec<u8>,
 ) -> Result<Totp, String> {
     let digits = u8::try_from(digits).map_err(|e| format!("TOTP Init Error: {e}"))?;
-    let short_secret = secret.len() == 10;
+    let short_secret = secret.len() == LEGACY_SECRET_LEN;
     let builder = Builder::new()
         .with_algorithm(algo)
         .with_digits(digits)

@@ -1,5 +1,5 @@
 use argon2::{Argon2, password_hash::phc::SaltString};
-use factr_core::vault::{self, Account, Vault, VaultDecryptError};
+use factr_core::vault::{self, Account, KEY_LEN, Vault, VaultDecryptError};
 use serde::{Deserialize, Serialize};
 use totp_rs::Algorithm;
 use uuid::Uuid;
@@ -21,7 +21,7 @@ pub struct EncryptedAccount {
 
 impl EncryptedAccount {
     /// Decrypts a V1 account into its domain representation.
-    pub fn decrypt(&self, key: &[u8; 32]) -> Result<Account, VaultDecryptError> {
+    pub fn decrypt(&self, key: &[u8; KEY_LEN]) -> Result<Account, VaultDecryptError> {
         let secret = vault::decrypt_bound(&self.encrypted_secret_b64, key, &[])?;
         let totp = vault::init_totp(
             self.issuer.to_owned(),
@@ -43,7 +43,7 @@ impl EncryptedAccount {
 
     /// Encodes an account in the V1 storage format.
     #[cfg(test)]
-    pub fn encrypt_account(account: &Account, key: &[u8; 32]) -> Result<Self, String> {
+    pub fn encrypt_account(account: &Account, key: &[u8; KEY_LEN]) -> Result<Self, String> {
         Ok(Self {
             id: account.id,
             created_at: account.created_at,
@@ -87,10 +87,10 @@ impl LegacyStorageV1 {
 }
 
 /// Derives the V1 encryption key from the legacy password and encoded salt.
-fn master_key(password: &str, salt_b64: &str) -> Result<[u8; 32], String> {
+fn master_key(password: &str, salt_b64: &str) -> Result<[u8; KEY_LEN], String> {
     let argon2 = Argon2::default();
     let salt = SaltString::from_b64(salt_b64).map_err(|e| e.to_string())?;
-    let mut key = [0u8; 32];
+    let mut key = [0u8; KEY_LEN];
     argon2
         // V1 derives the key from the encoded salt, not its decoded bytes.
         .hash_password_into(password.as_bytes(), salt.as_bytes(), &mut key)
@@ -110,7 +110,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("vault.json");
         let salt = SaltString::generate();
-        let mut key = Zeroizing::new([0u8; 32]);
+        let mut key = Zeroizing::new([0u8; KEY_LEN]);
         Argon2::default()
             .hash_password_into(b"old-password", salt.as_ref().as_bytes(), &mut *key)
             .unwrap();

@@ -22,8 +22,12 @@ use egui::WindowLevel;
 use egui::{Color32, ComboBox, RichText, Stroke, TextEdit};
 use rust_i18n::t;
 
+use crate::view::model::{VaultAccessAction, VaultAccessDisplay};
 use crate::{config::Config, vault_access::VaultAccess};
+
 use factr_core::vault::Vault;
+
+mod vault_access;
 
 #[cfg(target_os = "macos")]
 const TRAFFIC_LIGHTS_HEIGHT: f32 = 24.0;
@@ -32,6 +36,7 @@ pub struct FactrApp {
     config: Config,
     display: AppDisplay,
     access: VaultAccess,
+    access_display: VaultAccessDisplay,
     vault: Option<Vault>,
     error: Option<String>,
 }
@@ -110,14 +115,19 @@ impl FactrApp {
     }
 
     pub fn init(config: Config) -> Self {
-        let access = VaultAccess::new(&config.storage_file);
-        Self {
-            access,
+        let mut app = Self {
+            access: VaultAccess::default(),
+            access_display: VaultAccessDisplay::default(),
             vault: None,
             error: None,
             display: AppDisplay::default(),
             config,
+        };
+        app.reset_access();
+        if app.access_display.system_enabled {
+            app.access_display.action = Some(VaultAccessAction::SystemUnlock);
         }
+        app
     }
 
     fn lock_vault(&mut self) -> Result<(), String> {
@@ -125,7 +135,7 @@ impl FactrApp {
         let _ = self.vault.take();
         self.display.edit_display = None;
         self.display.add_display = None;
-        self.access.reload(&self.config.storage_file);
+        self.reset_access();
         self.display.need_default_focus = true;
         Ok(())
     }
@@ -135,15 +145,10 @@ impl FactrApp {
     }
 
     fn ui(&mut self, ui: &mut Ui) {
-        if self
-            .access
-            .update(ui.ctx(), &self.config.storage_file, &mut self.vault)
-        {
-            self.display.need_default_focus = true;
-        }
+        self.update_access(ui.ctx());
         let actions = self.display_main(ui);
         self.handle_actions(ui.ctx(), actions);
-        if self.access.display.action.is_some() {
+        if self.access_display.action.is_some() {
             ui.ctx().request_repaint();
         }
     }
@@ -416,7 +421,7 @@ impl FactrApp {
                             .get_or_insert(SettingsDisplay::from_config(&self.config)),
                         ui,
                     ));
-                    ui.add(widget::SystemProtectionControl(&mut self.access.display));
+                    ui.add(widget::SystemProtectionControl(&mut self.access_display));
                     close_settings |= widget::form_key(ui, Key::Escape);
                 });
             if close_settings {
@@ -619,7 +624,7 @@ impl FactrApp {
                     });
             });
         } else {
-            ui.add(widget::VaultAccessForm(&mut self.access.display));
+            ui.add(widget::VaultAccessForm(&mut self.access_display));
         }
         actions
     }
@@ -648,6 +653,23 @@ impl FactrApp {
         rank
     }
 
+    fn display_error(ui: &mut Ui, error: &String) {
+        Frame::new()
+            .corner_radius(10.0)
+            .stroke(Stroke::new(2.0_f32, Color32::LIGHT_RED))
+            .inner_margin(10.0)
+            .show(ui, |ui| {
+                ui.label(
+                    RichText::new(t!("error-label"))
+                        .heading()
+                        .color(Color32::LIGHT_RED),
+                );
+                ui.label(error);
+            });
+    }
+}
+
+impl FactrApp {
     fn handle_actions(&mut self, ctx: &egui::Context, actions: Vec<UiAction>) {
         actions
             .into_iter()
@@ -842,21 +864,6 @@ impl FactrApp {
                 self.error = config::save_to_dot_config(&self.config).err();
             }
         }
-    }
-
-    fn display_error(ui: &mut Ui, error: &String) {
-        Frame::new()
-            .corner_radius(10.0)
-            .stroke(Stroke::new(2.0_f32, Color32::LIGHT_RED))
-            .inner_margin(10.0)
-            .show(ui, |ui| {
-                ui.label(
-                    RichText::new(t!("error-label"))
-                        .heading()
-                        .color(Color32::LIGHT_RED),
-                );
-                ui.label(error);
-            });
     }
 
     fn save_storage(&self) -> Result<(), String> {

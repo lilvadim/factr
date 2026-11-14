@@ -149,19 +149,28 @@ impl AccountFieldsDisplay {
 }
 
 #[derive(PartialEq, Eq)]
-pub enum VaultAccessScreen {
+pub enum VaultSetupScreen {
     Create,
     Legacy,
-    Locked,
     ConfirmRecovery,
 }
 
-pub enum VaultAccessAction {
-    Prepare,
-    Confirm,
+#[derive(PartialEq, Eq)]
+pub enum VaultAccessScreen {
+    Setup(VaultSetupScreen),
+    Locked,
+}
+
+pub enum VaultSetupAction {
+    Start,
+    Complete,
     Cancel,
-    UnlockRecovery,
-    UnlockSystem,
+}
+
+pub enum VaultAccessAction {
+    Setup(VaultSetupAction),
+    RecoveryUnlock,
+    SystemUnlock,
     SetSystemProtection(bool),
 }
 
@@ -186,7 +195,7 @@ impl Default for VaultAccessDisplay {
     fn default() -> Self {
         let available = factr_system_protection::available();
         Self {
-            screen: VaultAccessScreen::Create,
+            screen: VaultAccessScreen::Setup(VaultSetupScreen::Create),
             input: Default::default(),
             recovery_key: Default::default(),
             recovery_saved: false,

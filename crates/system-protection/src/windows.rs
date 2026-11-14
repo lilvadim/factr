@@ -4,7 +4,7 @@ use std::{
 };
 
 use base64::prelude::*;
-use factr_core::vault::{self, ProtectedVaultKey};
+use factr_core::vault::{self, KEY_LEN, ProtectedVaultKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -25,6 +25,8 @@ use windows::{
 use zeroize::{Zeroize, Zeroizing};
 
 const PROVIDER: &str = "windows.hello";
+const VERSION: u32 = 1;
+const WRAPPING_KEY_INFO: &[u8] = b"Factr Windows Hello wrapping key V1";
 const HELLO_CREDENTIAL: &HSTRING = h!("FactrVaultProtectionV1");
 
 #[derive(Serialize, Deserialize)]
@@ -73,7 +75,7 @@ fn local_keys() -> &'static Mutex<HashMap<Uuid, bool>> {
 
 /// Matches a protection record to an entry available to the current Windows user.
 pub fn is_local(protected_key: &ProtectedVaultKey) -> bool {
-    if protected_key.provider != PROVIDER || protected_key.version != 1 {
+    if protected_key.provider != PROVIDER || protected_key.version != VERSION {
         return false;
     }
     let Ok(mut keys) = local_keys().lock() else {
@@ -131,7 +133,7 @@ fn write_key(id: Uuid, protected: &ProtectedKey) -> Result<(), String> {
 }
 
 /// Derives a wrapping key from a Windows Hello authorized signature.
-fn wrapping_key(challenge: &[u8], create: bool) -> Result<Zeroizing<[u8; 32]>, String> {
+fn wrapping_key(challenge: &[u8], create: bool) -> Result<Zeroizing<[u8; KEY_LEN]>, String> {
     let _runtime = Runtime::new()?;
     let result = if create {
         KeyCredentialManager::RequestCreateAsync(
@@ -178,7 +180,7 @@ fn wrapping_key(challenge: &[u8], create: bool) -> Result<Zeroizing<[u8; 32]>, S
     )
     .map_err(|e| e.to_string())?;
     let key = Sha256::new()
-        .chain_update(b"Factr Windows Hello wrapping key V1")
+        .chain_update(WRAPPING_KEY_INFO)
         .chain_update(signature.as_slice())
         .finalize();
     signature.iter_mut().for_each(Zeroize::zeroize);
@@ -186,18 +188,18 @@ fn wrapping_key(challenge: &[u8], create: bool) -> Result<Zeroizing<[u8; 32]>, S
 }
 
 /// Creates a Hello-protected vault key and persists its encrypted envelope.
-pub fn protect(id: Uuid, key: &[u8; 32], _reason: &str) -> Result<ProtectedVaultKey, String> {
-    let mut protected_key = ProtectedVaultKey {
-        id: Uuid::new_v4(),
-        provider: PROVIDER.to_string(),
-        version: 1,
-        metadata: serde_json::Value::Null,
-        wrapped_key_b64: String::new(),
-    };
+pub fn protect(id: Uuid, key: &[u8; KEY_LEN], _reason: &str) -> Result<ProtectedVaultKey, String> {
     let challenge = vault::random_key();
     let wrapping_key = wrapping_key(&*challenge, true)?;
-    protected_key.wrapped_key_b64 =
-        vault::encrypt_bound(key, &wrapping_key, &protected_key.context(id))?;
+    let protected_key_id = Uuid::new_v4();
+    let context = vault::encryption_context(id, protected_key_id, PROVIDER, VERSION);
+    let protected_key = ProtectedVaultKey {
+        id: protected_key_id,
+        provider: PROVIDER.to_string(),
+        version: VERSION,
+        metadata: serde_json::Value::Null,
+        wrapped_key_b64: vault::encrypt_bound(key, &wrapping_key, &context)?,
+    };
     write_key(
         protected_key.id,
         &ProtectedKey {
@@ -218,8 +220,8 @@ pub fn unlock(
     id: Uuid,
     protected_key: &ProtectedVaultKey,
     _reason: &str,
-) -> Result<Zeroizing<[u8; 32]>, String> {
-    if protected_key.provider != PROVIDER || protected_key.version != 1 {
+) -> Result<Zeroizing<[u8; KEY_LEN]>, String> {
+    if protected_key.provider != PROVIDER || protected_key.version != VERSION {
         return Err("Unsupported system protected key".to_string());
     }
     let entry = read_key(protected_key.id)?;
@@ -229,18 +231,23 @@ pub fn unlock(
     let challenge = BASE64_STANDARD
         .decode(&entry.challenge)
         .map_err(|e| e.to_string())?;
-    if challenge.len() != 32 {
+    if challenge.len() != KEY_LEN {
         return Err("Invalid Windows Hello challenge".to_string());
     }
     let wrapping_key = wrapping_key(&challenge, false)?;
     let bytes = vault::decrypt_bound(
         &entry.wrapped_key_b64,
         &wrapping_key,
-        &protected_key.context(id),
+        &vault::encryption_context(
+            id,
+            protected_key.id,
+            &protected_key.provider,
+            protected_key.version,
+        ),
     )
     .map_err(|e| e.to_string())?;
     Ok(Zeroizing::new(
-        <[u8; 32]>::try_from(bytes.as_slice()).map_err(|_| "Invalid vault key length")?,
+        <[u8; KEY_LEN]>::try_from(bytes.as_slice()).map_err(|_| "Invalid vault key length")?,
     ))
 }
 

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
-use factr_core::vault::{self, ProtectedVaultKey, Vault, VaultDecryptError};
+use factr_core::vault::{self, KEY_LEN, ProtectedVaultKey, Vault, VaultDecryptError};
 
 mod initialization;
 pub mod migration;
@@ -26,7 +26,10 @@ pub struct ProtectedStorageV2 {
 
 impl ProtectedStorageV2 {
     /// Authenticates and decrypts V2 accounts with an unlocked vault key.
-    pub fn decrypt(&self, master_key: Zeroizing<[u8; 32]>) -> Result<Vault, VaultDecryptError> {
+    pub fn decrypt(
+        &self,
+        master_key: Zeroizing<[u8; KEY_LEN]>,
+    ) -> Result<Vault, VaultDecryptError> {
         let bytes = vault::decrypt_bound(
             &self.encrypted_accounts_b64,
             &master_key,
