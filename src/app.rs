@@ -1,13 +1,11 @@
 use crate::config;
-use crate::encrypted_storage::Storage;
 use crate::phosphor;
-use crate::vault::VaultDecryptError;
 use crate::view::model::{
-    AccountDisplay, AccountFieldsDisplay, AppDisplay, EditDisplay, SettingsDisplay, SetupDisplay,
-    VaultDisplay,
+    AccountDisplay, AccountFieldsDisplay, AppDisplay, EditDisplay, SettingsDisplay, VaultDisplay,
 };
 use crate::view::widget;
-use std::{path::Path, sync::Arc};
+use factr_storage::{ProtectedStorageV2, Storage};
+use std::sync::Arc;
 use uuid::Uuid;
 
 use egui::Button;
@@ -24,10 +22,12 @@ use egui::WindowLevel;
 use egui::{Color32, ComboBox, RichText, Stroke, TextEdit};
 use rust_i18n::t;
 
-use crate::{
-    config::Config,
-    vault::{Password, Vault},
-};
+use crate::view::model::{VaultAccessAction, VaultAccessDisplay};
+use crate::{config::Config, vault_access::VaultAccess};
+
+use factr_core::vault::Vault;
+
+mod vault_access;
 
 #[cfg(target_os = "macos")]
 const TRAFFIC_LIGHTS_HEIGHT: f32 = 24.0;
@@ -35,7 +35,8 @@ const TRAFFIC_LIGHTS_HEIGHT: f32 = 24.0;
 pub struct FactrApp {
     config: Config,
     display: AppDisplay,
-    is_initialized: bool,
+    access: VaultAccess,
+    access_display: VaultAccessDisplay,
     vault: Option<Vault>,
     error: Option<String>,
 }
@@ -114,36 +115,27 @@ impl FactrApp {
     }
 
     pub fn init(config: Config) -> Self {
-        let is_initialized = is_initialized(&config.storage_file);
-        Self {
-            is_initialized,
+        let mut app = Self {
+            access: VaultAccess::default(),
+            access_display: VaultAccessDisplay::default(),
             vault: None,
             error: None,
             display: AppDisplay::default(),
             config,
+        };
+        app.reset_access();
+        if app.access_display.system_enabled {
+            app.access_display.action = Some(VaultAccessAction::SystemUnlock);
         }
+        app
     }
 
     fn lock_vault(&mut self) -> Result<(), String> {
         self.save_storage()?;
         let _ = self.vault.take();
         self.display.edit_display = None;
-        self.display.need_default_focus = true;
-        Ok(())
-    }
-
-    fn unlock_vault(&mut self) -> Result<(), String> {
-        let storage: Storage = serde_json::from_str(
-            &std::fs::read_to_string(&self.config.storage_file).map_err(|e| e.to_string())?,
-        )
-        .map_err(|e| e.to_string())?;
-        self.vault = Some(
-            Vault::decrypt_storage(&self.display.password, &storage).map_err(|e| match e {
-                VaultDecryptError::DecryptFailed => t!("wrong-password").to_string(),
-                VaultDecryptError::Other(str) => str,
-            })?,
-        );
-        self.display.password = "".to_string();
+        self.display.add_display = None;
+        self.reset_access();
         self.display.need_default_focus = true;
         Ok(())
     }
@@ -153,45 +145,11 @@ impl FactrApp {
     }
 
     fn ui(&mut self, ui: &mut Ui) {
-        let actions = self.display(ui);
+        self.update_access(ui.ctx());
+        let actions = self.display_main(ui);
         self.handle_actions(ui.ctx(), actions);
-    }
-
-    fn display_setup(setup_display: &mut SetupDisplay, ui: &mut Ui) -> Vec<UiAction> {
-        let mut actions = Vec::new();
-        ui.heading(t!("setup.title"));
-        ui.add_space(ui.spacing().item_spacing.y);
-        ui.strong(t!("setup.about-need"));
-        ui.label(t!("setup.about-disk"));
-        ui.label(t!("setup.about-vault"));
-        ui.strong(t!("setup.remember"));
-        ui.add_space(ui.spacing().item_spacing.y * 4f32);
-        ui.label(format!("{}:", t!("setup.enter-password")));
-        let password = TextEdit::singleline(&mut setup_display.password)
-            .id(egui::Id::unique("setup-password"))
-            .hint_text(t!("password"))
-            .password(true)
-            .show(ui)
-            .response;
-        if setup_display.need_default_focus {
-            password.request_focus();
-            setup_display.need_default_focus = false;
-        }
-        if ui.add(Button::new(t!("ok")).selected(true)).clicked() || Self::form_key(ui, Key::Enter)
-        {
-            actions.push(UiAction::Setup);
-        }
-        if let Some(error) = &setup_display.error {
-            Self::display_error(ui, error);
-        }
-        actions
-    }
-
-    fn display(&mut self, ui: &mut Ui) -> Vec<UiAction> {
-        if !self.is_initialized {
-            Self::display_setup(self.display.setup_display.get_or_insert_default(), ui)
-        } else {
-            self.display_main(ui)
+        if self.access_display.action.is_some() {
+            ui.ctx().request_repaint();
         }
     }
 
@@ -202,11 +160,11 @@ impl FactrApp {
             Self::display_error(ui, error);
         }
         ui.horizontal(|ui| {
-            if ui.button(t!("cancel")).clicked() || Self::form_key(ui, Key::Escape) {
+            if ui.button(t!("cancel")).clicked() || widget::form_key(ui, Key::Escape) {
                 actions.push(UiAction::CancelAdd);
             }
             if ui.add(Button::new(t!("save")).selected(true)).clicked()
-                || Self::form_key(ui, Key::Enter)
+                || widget::form_key(ui, Key::Enter)
             {
                 actions.push(UiAction::Add);
             }
@@ -333,6 +291,19 @@ impl FactrApp {
         btn
     }
 
+    /// Detects a Wayland session once for platform-dependent settings.
+    fn is_wayland() -> bool {
+        #[cfg(target_os = "linux")]
+        {
+            static WAYLAND: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            *WAYLAND.get_or_init(|| {
+                std::env::var("XDG_SESSION_TYPE").is_ok_and(|session| session == "wayland")
+            })
+        }
+        #[cfg(not(target_os = "linux"))]
+        false
+    }
+
     fn display_settings(settings: &mut SettingsDisplay, ui: &mut Ui) -> Vec<UiAction> {
         let mut actions = Vec::new();
         ui.vertical(|ui| {
@@ -345,12 +316,24 @@ impl FactrApp {
             {
                 actions.push(UiAction::UpdateConfiguration);
             }
-            if ui
-                .checkbox(&mut settings.always_on_top, t!("settings.always-on-top"))
-                .clicked()
-            {
-                actions.push(UiAction::UpdateConfiguration);
-            }
+            ui.horizontal(|ui| {
+                let wayland = Self::is_wayland();
+                if ui
+                    .add_enabled(
+                        !wayland,
+                        egui::Checkbox::new(
+                            &mut settings.always_on_top,
+                            t!("settings.always-on-top"),
+                        ),
+                    )
+                    .clicked()
+                {
+                    actions.push(UiAction::UpdateConfiguration);
+                }
+                if wayland {
+                    ui.weak(t!("settings.wayland-unsupported"));
+                }
+            });
             if ui
                 .checkbox(&mut settings.toolbar_labels, t!("settings.toolbar-labels"))
                 .clicked()
@@ -438,7 +421,8 @@ impl FactrApp {
                             .get_or_insert(SettingsDisplay::from_config(&self.config)),
                         ui,
                     ));
-                    close_settings |= Self::form_key(ui, Key::Escape);
+                    ui.add(widget::SystemProtectionControl(&mut self.access_display));
+                    close_settings |= widget::form_key(ui, Key::Escape);
                 });
             if close_settings {
                 self.display.settings_ui = false;
@@ -464,12 +448,13 @@ impl FactrApp {
                             Self::display_error(ui, error);
                         }
                         ui.horizontal(|ui| {
-                            if ui.button(t!("cancel")).clicked() || Self::form_key(ui, Key::Escape)
+                            if ui.button(t!("cancel")).clicked()
+                                || widget::form_key(ui, Key::Escape)
                             {
                                 actions.push(UiAction::CancelEdit);
                             }
                             if ui.add(Button::new(t!("save")).selected(true)).clicked()
-                                || Self::form_key(ui, Key::Enter)
+                                || widget::form_key(ui, Key::Enter)
                             {
                                 actions.push(UiAction::SaveEdit);
                             }
@@ -639,57 +624,9 @@ impl FactrApp {
                     });
             });
         } else {
-            Frame::new().inner_margin(25.0).show(ui, |ui| {
-                ui.heading(format!("{} {}", phosphor::VAULT, t!("vault-locked")));
-                ui.add_space(ui.spacing().item_spacing.y);
-                let password = TextEdit::singleline(&mut self.display.password)
-                    .id(egui::Id::unique("vault-password"))
-                    .hint_text(t!("enter-password"))
-                    .password(true)
-                    .show(ui)
-                    .response;
-                if self.display.need_default_focus {
-                    password.request_focus();
-                    self.display.need_default_focus = false;
-                }
-                ui.add_space(ui.spacing().item_spacing.y);
-                if Button::new(RichText::new(t!("unlock-vault")).strong())
-                    .selected(true)
-                    .ui(ui)
-                    .clicked()
-                    || Self::form_key(ui, Key::Enter)
-                {
-                    actions.push(UiAction::UnlockVault);
-                }
-                if let Some(error) = &self.error {
-                    ui.add_space(ui.spacing().item_spacing.y);
-                    Self::display_error(ui, error);
-                }
-            });
+            ui.add(widget::VaultAccessForm(&mut self.access_display));
         }
         actions
-    }
-
-    fn form_key(ui: &mut Ui, key: Key) -> bool {
-        let layer = ui.layer_id();
-        let focused_layer = ui
-            .memory(|memory| memory.focused())
-            .and_then(|id| ui.ctx().read_response(id))
-            .map(|response| response.layer_id);
-        if focused_layer.is_some_and(|focused| focused != layer) {
-            return false;
-        }
-        let is_active = ui.memory(|memory| {
-            memory
-                .layer_ids()
-                .filter(|id| {
-                    memory.areas().is_visible(id)
-                        && matches!(id.order, egui::Order::Middle | egui::Order::Foreground)
-                })
-                .last()
-                .is_none_or(|id| id == layer)
-        });
-        is_active && ui.input_mut(|input| input.consume_key(egui::Modifiers::NONE, key))
     }
 
     fn filter_search_rate(account: &AccountDisplay, query: &str) -> u32 {
@@ -716,6 +653,23 @@ impl FactrApp {
         rank
     }
 
+    fn display_error(ui: &mut Ui, error: &String) {
+        Frame::new()
+            .corner_radius(10.0)
+            .stroke(Stroke::new(2.0_f32, Color32::LIGHT_RED))
+            .inner_margin(10.0)
+            .show(ui, |ui| {
+                ui.label(
+                    RichText::new(t!("error-label"))
+                        .heading()
+                        .color(Color32::LIGHT_RED),
+                );
+                ui.label(error);
+            });
+    }
+}
+
+impl FactrApp {
     fn handle_actions(&mut self, ctx: &egui::Context, actions: Vec<UiAction>) {
         actions
             .into_iter()
@@ -724,14 +678,8 @@ impl FactrApp {
 
     fn handle_action(&mut self, ctx: &egui::Context, action: UiAction) {
         match action {
-            UiAction::UnlockVault => {
-                self.error = self.unlock_vault().err();
-            }
             UiAction::LockVault => {
                 self.error = self.lock_vault().err();
-            }
-            UiAction::Setup => {
-                self.finish_setup();
             }
             UiAction::Add => {
                 let display = self.display.add_display.as_mut().expect("No Add Input");
@@ -918,45 +866,9 @@ impl FactrApp {
         }
     }
 
-    fn finish_setup(&mut self) {
-        let setup = self.display.setup_display.take().expect("No Setup");
-
-        self.display.password = setup.password.to_owned();
-        let result = Password::from_string(setup.password.to_owned())
-            .map_err(|e| e.to_string())
-            .and_then(|password| Vault::initialize(&password))
-            .and_then(|vault| Storage::encrypt_vault(&vault))
-            .and_then(|storage| write_storage_file(&self.config.storage_file, storage))
-            .map_err(|e| format!("Storage Initialization Error: {e}"))
-            .and_then(|_| {
-                self.unlock_vault()
-                    .map_err(|e| format!("Vault Unlock Error: {e}"))
-            });
-
-        self.is_initialized = result.is_ok();
-        if result.is_err() {
-            self.display.setup_display.insert(setup).error = result.err();
-        }
-    }
-
-    fn display_error(ui: &mut Ui, error: &String) {
-        Frame::new()
-            .corner_radius(10.0)
-            .stroke(Stroke::new(2.0_f32, Color32::LIGHT_RED))
-            .inner_margin(10.0)
-            .show(ui, |ui| {
-                ui.label(
-                    RichText::new(t!("error-label"))
-                        .heading()
-                        .color(Color32::LIGHT_RED),
-                );
-                ui.label(error);
-            });
-    }
-
     fn save_storage(&self) -> Result<(), String> {
-        Storage::encrypt_vault(self.vault.as_ref().ok_or("No Vault".to_string())?)
-            .and_then(|storage| write_storage_file(&self.config.storage_file, storage))
+        let vault = self.vault.as_ref().ok_or("No Vault")?;
+        Storage::V2(ProtectedStorageV2::from_vault(vault)?).write(&self.config.storage_file)
     }
 }
 
@@ -965,24 +877,9 @@ enum UiAction {
     Edit(Uuid),
     SaveEdit,
     CancelEdit,
-    UnlockVault,
     LockVault,
-    Setup,
     Add,
     CancelAdd,
     Delete(Uuid),
     UpdateConfiguration,
-}
-
-fn is_initialized(storage_file: &Path) -> bool {
-    storage_file.exists()
-}
-
-fn write_storage_file(path: &Path, storage: Storage) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("Cannot create config dir: {e}"))?;
-    }
-    let json = serde_json::to_string(&storage).map_err(|e| format!("Serialization Error: {e}"))?;
-    std::fs::write(path, &json).map_err(|e| format!("File Write Error: {e}"))?;
-    Ok(())
 }

@@ -2,10 +2,8 @@ use egui::ThemePreference;
 use totp_rs::Algorithm;
 use uuid::Uuid;
 
-use crate::{
-    config::{AccountSort, Config},
-    vault::{self, Account, Vault},
-};
+use crate::config::{AccountSort, Config};
+use factr_core::vault::{self, Account, Vault};
 
 pub struct VaultDisplay {
     pub accounts: Vec<AccountDisplay>,
@@ -70,9 +68,7 @@ impl SettingsDisplay {
 
 pub struct AppDisplay {
     pub filter_search: String,
-    pub password: String,
     pub need_default_focus: bool,
-    pub setup_display: Option<SetupDisplay>,
     pub add_ui: bool,
     pub add_display: Option<AccountFieldsDisplay>,
     pub settings_ui: bool,
@@ -85,9 +81,7 @@ impl Default for AppDisplay {
     fn default() -> Self {
         Self {
             filter_search: Default::default(),
-            password: Default::default(),
             need_default_focus: true,
-            setup_display: Default::default(),
             add_ui: Default::default(),
             add_display: Default::default(),
             settings_ui: Default::default(),
@@ -154,19 +148,79 @@ impl AccountFieldsDisplay {
     }
 }
 
-pub(crate) struct SetupDisplay {
-    pub password: String,
-    pub error: Option<String>,
-    pub need_default_focus: bool,
+#[derive(PartialEq, Eq)]
+pub enum VaultSetupScreen {
+    Create,
+    Legacy,
+    ConfirmRecovery,
 }
 
-impl Default for SetupDisplay {
+#[derive(PartialEq, Eq)]
+pub enum VaultAccessScreen {
+    Setup(VaultSetupScreen),
+    Locked,
+}
+
+pub enum VaultSetupAction {
+    Start,
+    Complete,
+    Cancel,
+}
+
+pub enum VaultAccessAction {
+    Setup(VaultSetupAction),
+    RecoveryUnlock,
+    SystemUnlock,
+    SetSystemProtection(bool),
+}
+
+pub struct VaultAccessDisplay {
+    pub screen: VaultAccessScreen,
+    pub input: zeroize::Zeroizing<String>,
+    pub recovery_key: zeroize::Zeroizing<String>,
+    pub recovery_saved: bool,
+    pub use_recovery_key: bool,
+    pub system_available: bool,
+    pub system_enabled: bool,
+    pub use_system: bool,
+    pub busy: bool,
+    pub can_create: bool,
+    pub need_default_focus: bool,
+    pub error: Option<String>,
+    pub action: Option<VaultAccessAction>,
+}
+
+impl Default for VaultAccessDisplay {
+    /// Initializes the unlock form with the available system protection.
     fn default() -> Self {
+        let available = factr_system_protection::available();
         Self {
-            password: Default::default(),
-            error: Default::default(),
+            screen: VaultAccessScreen::Setup(VaultSetupScreen::Create),
+            input: Default::default(),
+            recovery_key: Default::default(),
+            recovery_saved: false,
+            use_recovery_key: false,
+            system_available: available,
+            system_enabled: false,
+            use_system: available,
+            busy: false,
+            can_create: true,
             need_default_focus: true,
+            error: None,
+            action: None,
         }
+    }
+}
+
+impl VaultAccessDisplay {
+    /// Wipes transient secrets and resets pending confirmation state.
+    pub fn clear_secrets(&mut self) {
+        use zeroize::Zeroize;
+        self.input.zeroize();
+        self.recovery_key.zeroize();
+        self.recovery_saved = false;
+        self.use_recovery_key = false;
+        self.action = None;
     }
 }
 
