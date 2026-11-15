@@ -73,8 +73,8 @@ jobs:
               { input: 'build_macos_intel', platform: 'macos-amd64', runner: 'macos-15', format: 'dmg', target: 'x86_64-apple-darwin', path: 'target/x86_64-apple-darwin/release/*.dmg' },
               { input: 'build_windows_amd64', platform: 'windows-amd64', runner: 'windows-2022', format: 'nsis', path: 'target/release/*setup.exe' },
               { input: 'build_windows_arm64', platform: 'windows-arm64', runner: 'windows-11-arm', format: 'nsis', target: 'aarch64-pc-windows-msvc', path: 'target/aarch64-pc-windows-msvc/release/*setup.exe' },
-              { input: 'build_linux_amd64', platform: 'linux-amd64', runner: 'ubuntu-22.04', format: 'deb,rpm,archlinux', arch: 'amd64', path: 'target/packages/*' },
-              { input: 'build_linux_arm64', platform: 'linux-arm64', runner: 'ubuntu-22.04-arm', format: 'deb,rpm,archlinux', arch: 'arm64', path: 'target/packages/*' },
+              { input: 'build_linux_amd64', platform: 'linux-amd64', runner: 'ubuntu-22.04', format: 'deb,rpm,archlinux', path: 'target/packages/*' },
+              { input: 'build_linux_arm64', platform: 'linux-arm64', runner: 'ubuntu-22.04-arm', format: 'deb,rpm,archlinux', path: 'target/packages/*' },
             ];
             const include = platforms.filter(platform => inputs[platform.input]);
             if (inputs.create_release && include.length === 0) {
@@ -108,12 +108,11 @@ jobs:
         run: cargo install cargo-packager --version 0.11.8 --locked
       - name: Install Linux Packager
         if: runner.os == 'Linux'
-        env:
-          PACKAGE_ARCH: ${{ matrix.arch }}
         run: |
-          curl -fsSL "https://github.com/goreleaser/nfpm/releases/download/v2.49.0/nfpm_2.49.0_Linux_${PACKAGE_ARCH}.tar.gz" -o "$RUNNER_TEMP/nfpm.tar.gz"
-          tar -xzf "$RUNNER_TEMP/nfpm.tar.gz" -C "$RUNNER_TEMP" nfpm
-          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+          echo 'deb [trusted=yes] https://repo.goreleaser.com/apt/ /' | sudo tee /etc/apt/sources.list.d/goreleaser.list
+          sudo apt-get update
+          sudo apt-get install -y nfpm
+          nfpm --version
       - name: Install Rust Target
         if: matrix.target != ''
         run: rustup target add ${{ matrix.target }}
