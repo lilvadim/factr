@@ -1,3 +1,7 @@
+pub mod setup;
+pub mod system_protection;
+pub mod unlock;
+
 use egui::ThemePreference;
 use totp_rs::Algorithm;
 use uuid::Uuid;
@@ -145,87 +149,6 @@ impl AccountFieldsDisplay {
                 position,
             )
         }
-    }
-}
-
-#[derive(PartialEq, Eq)]
-pub enum VaultSetupScreen {
-    Create,
-    Legacy,
-    ConfirmRecovery,
-}
-
-#[derive(PartialEq, Eq)]
-pub enum VaultAccessScreen {
-    Setup(VaultSetupScreen),
-    Locked,
-}
-
-pub enum VaultSetupAction {
-    Start,
-    Complete,
-    Cancel,
-}
-
-pub enum VaultAccessAction {
-    CheckSystemProtection,
-    #[cfg(target_os = "windows")]
-    OpenSystemSettings,
-    Setup(VaultSetupAction),
-    RecoveryUnlock,
-    SystemUnlock,
-    SetSystemProtection(bool),
-}
-
-pub struct VaultAccessDisplay {
-    pub screen: VaultAccessScreen,
-    pub input: zeroize::Zeroizing<String>,
-    pub recovery_key: zeroize::Zeroizing<String>,
-    pub recovery_saved: bool,
-    pub use_recovery_key: bool,
-    pub system_available: bool,
-    pub system_check: Option<Result<bool, String>>,
-    pub system_enabled: bool,
-    pub use_system: bool,
-    pub busy: bool,
-    pub can_create: bool,
-    pub need_default_focus: bool,
-    pub error: Option<String>,
-    pub action: Option<VaultAccessAction>,
-}
-
-impl Default for VaultAccessDisplay {
-    /// Initializes the unlock form with the available system protection.
-    fn default() -> Self {
-        let available = factr_system_protection::available();
-        Self {
-            screen: VaultAccessScreen::Setup(VaultSetupScreen::Create),
-            input: Default::default(),
-            recovery_key: Default::default(),
-            recovery_saved: false,
-            use_recovery_key: false,
-            system_available: available,
-            system_check: None,
-            system_enabled: false,
-            use_system: available,
-            busy: false,
-            can_create: true,
-            need_default_focus: true,
-            error: None,
-            action: None,
-        }
-    }
-}
-
-impl VaultAccessDisplay {
-    /// Wipes transient secrets and resets pending confirmation state.
-    pub fn clear_secrets(&mut self) {
-        use zeroize::Zeroize;
-        self.input.zeroize();
-        self.recovery_key.zeroize();
-        self.recovery_saved = false;
-        self.use_recovery_key = false;
-        self.action = None;
     }
 }
 

@@ -29,6 +29,8 @@ setup:
   remember: Remember it!
   enter-password: Enter password
 access:
+  restore-system-after-unlock: "After unlocking, set up system protection in Settings."
+  system-restore-about: "Your vault is already set up. If you moved it to another device or system protection is unavailable, unlock it with your recovery key."
   security-title: "Vault Security"
   security-intro: "There are two ways to unlock your vault:"
   security-system-title: "1. System Protection — recommended for everyday use"
@@ -37,7 +39,7 @@ access:
   security-recovery-about: "A long code you must save somewhere safe, separately from your vault. Use it to move your vault to another device or restore access if system protection stops working."
   security-recovery-only: "Without system protection, you will need your recovery key every time you unlock the vault."
   windows-setup: "Set up Windows Hello to use system protection. A PIN is enough; biometrics are optional."
-  windows-ready: "Windows Hello is ready. System protection is now available."
+  windows-ready: "Windows Hello is ready. System protection is available."
   windows-not-ready: "Windows Hello is not available yet. Set it up, then click Done again."
   linux-setup: "Configure GNOME Keyring or KWallet and your desktop’s Polkit authentication agent, then check again."
   system-ready: "System protection is available on this device."
@@ -45,7 +47,6 @@ access:
   system-check-failed: "Could not confirm system protection availability:"
   open-signin-settings: "Open sign-in settings"
   system-guide: "How to set up system protection"
-  setup-done: "Done"
   check-again: "Check again"
   about: Your codes are encrypted with a random key. Keep the recovery key separately to restore or transfer your vault.
   migrate-title: Upgrade vault protection
@@ -56,7 +57,6 @@ access:
   recovery-saved: I saved the recovery key separately
   recovery-key: Recovery key
   use-recovery-key: Use recovery key...
-  enter-recovery: Restore or transfer using your recovery key
   enable-system: Unlock with system authentication on this device
   system-unavailable: System protection is unavailable here. The vault can be opened with the recovery key.
   unlock-system: Unlock with system authentication

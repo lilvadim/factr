@@ -10,7 +10,6 @@ use crate::app::FactrApp;
 mod app;
 mod config;
 mod phosphor;
-mod vault_access;
 mod view;
 
 rust_i18n::i18n!("locales", fallback = "en");

@@ -1,9 +1,14 @@
+use crate::app::system_protection::SystemProtectionApp;
+use crate::app::vault_access::VaultAccess;
 use crate::config;
 use crate::phosphor;
 use crate::view::model::{
     AccountDisplay, AccountFieldsDisplay, AppDisplay, EditDisplay, SettingsDisplay, VaultDisplay,
 };
 use crate::view::widget;
+use crate::view::widget::AccountAddForm;
+use crate::view::widget::AccountCodeCard;
+use crate::view::widget::AccountSortControl;
 use factr_storage::{ProtectedStorageV2, Storage};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -22,11 +27,14 @@ use egui::WindowLevel;
 use egui::{Color32, ComboBox, RichText, Stroke, TextEdit};
 use rust_i18n::t;
 
-use crate::view::model::{VaultAccessAction, VaultAccessDisplay};
-use crate::{config::Config, vault_access::VaultAccess};
+use crate::config::Config;
 
 use factr_core::vault::Vault;
 
+mod setup;
+mod system_protection;
+mod task;
+mod unlock;
 mod vault_access;
 
 #[cfg(target_os = "macos")]
@@ -36,7 +44,7 @@ pub struct FactrApp {
     config: Config,
     display: AppDisplay,
     access: VaultAccess,
-    access_display: VaultAccessDisplay,
+    system_protection: SystemProtectionApp,
     vault: Option<Vault>,
     error: Option<String>,
 }
@@ -117,15 +125,17 @@ impl FactrApp {
     pub fn init(config: Config) -> Self {
         let mut app = Self {
             access: VaultAccess::default(),
-            access_display: VaultAccessDisplay::default(),
+            system_protection: SystemProtectionApp::default(),
             vault: None,
             error: None,
             display: AppDisplay::default(),
             config,
         };
         app.reset_access();
-        if app.access_display.system_enabled {
-            app.access_display.action = Some(VaultAccessAction::SystemUnlock);
+        if app.system_protection.display.enabled
+            && let VaultAccess::Unlock(unlock) = &mut app.access
+        {
+            unlock.request_system_unlock();
         }
         app
     }
@@ -148,34 +158,31 @@ impl FactrApp {
         self.update_access(ui.ctx());
         let actions = self.display_main(ui);
         self.handle_actions(ui.ctx(), actions);
-        if self.access_display.action.is_some() {
-            ui.ctx().request_repaint();
-        }
     }
 
-    fn display_add(display: &mut AccountFieldsDisplay, ui: &mut Ui) -> Vec<UiAction> {
+    fn display_add(display: &mut AccountFieldsDisplay, ui: &mut Ui) -> Vec<MainScreenAction> {
         let mut actions = Vec::new();
-        ui.add(widget::AccountAddForm::new(display));
+        ui.add(AccountAddForm::new(display));
         if let Some(error) = &display.error {
             Self::display_error(ui, error);
         }
         ui.horizontal(|ui| {
             if ui.button(t!("cancel")).clicked() || widget::form_key(ui, Key::Escape) {
-                actions.push(UiAction::CancelAdd);
+                actions.push(MainScreenAction::CancelAdd);
             }
             if ui.add(Button::new(t!("save")).selected(true)).clicked()
                 || widget::form_key(ui, Key::Enter)
             {
-                actions.push(UiAction::Add);
+                actions.push(MainScreenAction::Add);
             }
         });
         actions
     }
 
-    fn display_top_bar(&mut self, ui: &mut Ui) -> Vec<UiAction> {
+    fn display_top_bar(&mut self, ui: &mut Ui) -> Vec<MainScreenAction> {
         let mut actions = Vec::new();
         let button_group_width = self.toolbar_button_group_width(ui);
-        let sort_width = widget::AccountSortControl(&mut self.display.sort).width(ui);
+        let sort_width = AccountSortControl(&mut self.display.sort).width(ui);
         let controls_width = sort_width + button_group_width + 2.0 * ui.spacing().item_spacing.x;
         let min_search_width = 120.0;
         let search_width = ui.available_width() - controls_width;
@@ -184,22 +191,16 @@ impl FactrApp {
         if single_row {
             ui.horizontal(|ui| {
                 self.display_search(ui, search_width);
-                if ui
-                    .add(widget::AccountSortControl(&mut self.display.sort))
-                    .changed()
-                {
-                    actions.push(UiAction::UpdateConfiguration);
+                if ui.add(AccountSortControl(&mut self.display.sort)).changed() {
+                    actions.push(MainScreenAction::UpdateConfiguration);
                 }
                 self.display_toolbar_buttons(ui, &mut actions);
             });
         } else {
             self.display_search(ui, ui.available_width());
             ui.horizontal_wrapped(|ui| {
-                if ui
-                    .add(widget::AccountSortControl(&mut self.display.sort))
-                    .changed()
-                {
-                    actions.push(UiAction::UpdateConfiguration);
+                if ui.add(AccountSortControl(&mut self.display.sort)).changed() {
+                    actions.push(MainScreenAction::UpdateConfiguration);
                 }
                 self.display_toolbar_buttons(ui, &mut actions);
             });
@@ -222,7 +223,7 @@ impl FactrApp {
         }
     }
 
-    fn display_toolbar_buttons(&mut self, ui: &mut Ui, actions: &mut Vec<UiAction>) {
+    fn display_toolbar_buttons(&mut self, ui: &mut Ui, actions: &mut Vec<MainScreenAction>) {
         let buttons = [
             (phosphor::LOCK, t!("lock-vault")),
             (phosphor::PLUS, t!("add-code")),
@@ -231,7 +232,7 @@ impl FactrApp {
         for (icon, label) in buttons {
             if Self::toolbar_button(ui, self.config.toolbar_labels, icon, label).clicked() {
                 match icon {
-                    phosphor::LOCK => actions.push(UiAction::LockVault),
+                    phosphor::LOCK => actions.push(MainScreenAction::LockVault),
                     phosphor::PLUS => self.display.add_ui = true,
                     phosphor::GEAR => self.display.settings_ui = true,
                     _ => unreachable!(),
@@ -304,7 +305,7 @@ impl FactrApp {
         false
     }
 
-    fn display_settings(settings: &mut SettingsDisplay, ui: &mut Ui) -> Vec<UiAction> {
+    fn display_settings(settings: &mut SettingsDisplay, ui: &mut Ui) -> Vec<MainScreenAction> {
         let mut actions = Vec::new();
         ui.vertical(|ui| {
             if ui
@@ -314,7 +315,7 @@ impl FactrApp {
                 )
                 .clicked()
             {
-                actions.push(UiAction::UpdateConfiguration);
+                actions.push(MainScreenAction::UpdateConfiguration);
             }
             ui.horizontal(|ui| {
                 let wayland = Self::is_wayland();
@@ -328,7 +329,7 @@ impl FactrApp {
                     )
                     .clicked()
                 {
-                    actions.push(UiAction::UpdateConfiguration);
+                    actions.push(MainScreenAction::UpdateConfiguration);
                 }
                 if wayland {
                     ui.weak(t!("settings.wayland-unsupported"));
@@ -338,7 +339,7 @@ impl FactrApp {
                 .checkbox(&mut settings.toolbar_labels, t!("settings.toolbar-labels"))
                 .clicked()
             {
-                actions.push(UiAction::UpdateConfiguration);
+                actions.push(MainScreenAction::UpdateConfiguration);
             }
             ui.horizontal(|ui| {
                 ui.label(t!("settings.theme"));
@@ -368,14 +369,14 @@ impl FactrApp {
                         );
                     });
                 if before != settings.theme {
-                    actions.push(UiAction::UpdateConfiguration);
+                    actions.push(MainScreenAction::UpdateConfiguration);
                 }
             })
         });
         actions
     }
 
-    fn display_main(&mut self, ui: &mut Ui) -> Vec<UiAction> {
+    fn display_main(&mut self, ui: &mut Ui) -> Vec<MainScreenAction> {
         let mut actions = Vec::new();
 
         if self.is_vault_unlocked() {
@@ -407,6 +408,7 @@ impl FactrApp {
                 self.display.add_ui = false;
             }
             let mut close_settings = false;
+            let busy = self.access_busy();
             Window::new(t!("settings-label"))
                 .title_bar(false)
                 .vscroll(true)
@@ -416,7 +418,7 @@ impl FactrApp {
                     close_settings = ui
                         .add(widget::InnerWindowHeader::new(&t!("settings-label")))
                         .clicked();
-                    ui.add(widget::SystemProtectionControl(&mut self.access_display));
+                    self.system_protection.show(ui, busy);
                     ui.separator();
                     actions.extend(Self::display_settings(
                         self.display
@@ -453,12 +455,12 @@ impl FactrApp {
                             if ui.button(t!("cancel")).clicked()
                                 || widget::form_key(ui, Key::Escape)
                             {
-                                actions.push(UiAction::CancelEdit);
+                                actions.push(MainScreenAction::CancelEdit);
                             }
                             if ui.add(Button::new(t!("save")).selected(true)).clicked()
                                 || widget::form_key(ui, Key::Enter)
                             {
-                                actions.push(UiAction::SaveEdit);
+                                actions.push(MainScreenAction::SaveEdit);
                             }
                         });
                     });
@@ -532,18 +534,18 @@ impl FactrApp {
                 let available_width = ui.available_width();
                 let max_columns = accounts.len().max(1);
                 let column_count = (((available_width + item_spacing.x)
-                    / (widget::AccountCodeCard::MIN_WIDTH + item_spacing.x))
+                    / (AccountCodeCard::MIN_WIDTH + item_spacing.x))
                     .floor() as usize)
                     .clamp(1, max_columns);
                 let card_width = (available_width
                     - item_spacing.x * (column_count.saturating_sub(1) as f32))
                     / column_count as f32;
-                let card_width = card_width.min(widget::AccountCodeCard::MAX_WIDTH);
+                let card_width = card_width.min(AccountCodeCard::MAX_WIDTH);
                 egui::Grid::new("account-codes-grid")
                     .num_columns(column_count)
-                    .min_col_width(widget::AccountCodeCard::MIN_WIDTH)
+                    .min_col_width(AccountCodeCard::MIN_WIDTH)
                     .max_col_width(card_width)
-                    .min_row_height(widget::AccountCodeCard::HEIGHT)
+                    .min_row_height(AccountCodeCard::HEIGHT)
                     .spacing(item_spacing)
                     .show(ui, |ui| {
                         for (position, (i, acc)) in accounts.into_iter().enumerate() {
@@ -560,11 +562,7 @@ impl FactrApp {
                                     if draggable {
                                         let id = ui.make_persistent_id("account-drag");
                                         let source = ui.dnd_drag_source(id, i, |ui| {
-                                            ui.add(widget::AccountCodeCard::new(
-                                                &acc,
-                                                card_width,
-                                                Some(id),
-                                            ))
+                                            ui.add(AccountCodeCard::new(&acc, card_width, Some(id)))
                                         });
                                         let response = ui.interact(
                                             source.response.rect,
@@ -575,7 +573,7 @@ impl FactrApp {
                                     } else {
                                         ui.add_enabled(
                                             !editing,
-                                            widget::AccountCodeCard::new(&acc, card_width, None),
+                                            AccountCodeCard::new(&acc, card_width, None),
                                         )
                                     }
                                 })
@@ -601,7 +599,7 @@ impl FactrApp {
                                     ));
                                 }
                                 if let Some(source) = response.dnd_release_payload::<Uuid>() {
-                                    actions.push(UiAction::MoveAccount(*source, i));
+                                    actions.push(MainScreenAction::MoveAccount(*source, i));
                                 }
                             }
                             if response.clicked() {
@@ -612,11 +610,11 @@ impl FactrApp {
                             }
                             response.context_menu(|ui| {
                                 if ui.button(t!("edit")).clicked() {
-                                    actions.push(UiAction::Edit(i));
+                                    actions.push(MainScreenAction::Edit(i));
                                     ui.close();
                                 }
                                 if ui.button(t!("delete")).clicked() {
-                                    actions.push(UiAction::Delete(i));
+                                    actions.push(MainScreenAction::Delete(i));
                                 }
                             });
                             if (position + 1) % column_count == 0 {
@@ -626,7 +624,7 @@ impl FactrApp {
                     });
             });
         } else {
-            ui.add(widget::VaultAccessForm(&mut self.access_display));
+            self.display_access(ui);
         }
         actions
     }
@@ -672,18 +670,18 @@ impl FactrApp {
 }
 
 impl FactrApp {
-    fn handle_actions(&mut self, ctx: &egui::Context, actions: Vec<UiAction>) {
+    fn handle_actions(&mut self, ctx: &egui::Context, actions: Vec<MainScreenAction>) {
         actions
             .into_iter()
             .for_each(|action| self.handle_action(ctx, action));
     }
 
-    fn handle_action(&mut self, ctx: &egui::Context, action: UiAction) {
+    fn handle_action(&mut self, ctx: &egui::Context, action: MainScreenAction) {
         match action {
-            UiAction::LockVault => {
+            MainScreenAction::LockVault => {
                 self.error = self.lock_vault().err();
             }
-            UiAction::Add => {
+            MainScreenAction::Add => {
                 let display = self.display.add_display.as_mut().expect("No Add Input");
                 let result = self
                     .vault
@@ -703,11 +701,11 @@ impl FactrApp {
                     display.error = result.err();
                 }
             }
-            UiAction::CancelAdd => {
+            MainScreenAction::CancelAdd => {
                 self.display.add_ui = false;
                 self.display.add_display = None;
             }
-            UiAction::Edit(id) => {
+            MainScreenAction::Edit(id) => {
                 if let Some(account) = self
                     .vault
                     .as_ref()
@@ -716,8 +714,8 @@ impl FactrApp {
                     self.display.edit_display = Some(EditDisplay::from_account(account));
                 }
             }
-            UiAction::CancelEdit => self.display.edit_display = None,
-            UiAction::SaveEdit => {
+            MainScreenAction::CancelEdit => self.display.edit_display = None,
+            MainScreenAction::SaveEdit => {
                 let Some(edit) = &self.display.edit_display else {
                     return;
                 };
@@ -763,7 +761,7 @@ impl FactrApp {
                     }
                 }
             }
-            UiAction::MoveAccount(source, target) => {
+            MainScreenAction::MoveAccount(source, target) => {
                 let move_unavailable = self.display.sort.enabled
                     || !self.display.filter_search.is_empty()
                     || source == target;
@@ -815,7 +813,7 @@ impl FactrApp {
                     self.error = Some(error);
                 }
             }
-            UiAction::Delete(id) => {
+            MainScreenAction::Delete(id) => {
                 if self
                     .display
                     .edit_display
@@ -845,7 +843,7 @@ impl FactrApp {
                     .and_then(|_| self.save_storage())
                     .err();
             }
-            UiAction::UpdateConfiguration => {
+            MainScreenAction::UpdateConfiguration => {
                 self.config.sort = self.display.sort;
                 if let Some(settings_display) = &self.display.settings_display {
                     self.config.close_after_copy = settings_display.close_after_copy;
@@ -874,7 +872,7 @@ impl FactrApp {
     }
 }
 
-enum UiAction {
+enum MainScreenAction {
     MoveAccount(Uuid, Uuid),
     Edit(Uuid),
     SaveEdit,

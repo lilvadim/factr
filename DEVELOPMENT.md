@@ -48,20 +48,22 @@ cargo packager --release --formats nsis # Windows
 
 ## Structure and architecture
 
-| Path | Responsibility |
-| --- | --- |
-| `src/` | Application, configuration, unlock orchestration |
-| `src/app.rs`, `src/app/` | UI composition, action handlers, display updates |
-| `src/vault_access.rs` | Vault access operations and background jobs, independent of egui |
-| `src/view/` | egui widgets and view models |
-| `crates/core/` | Domain models, TOTP, encryption, recovery keys |
-| `crates/storage/` | File formats, migration, atomic writes |
-| `crates/system-protection/` | Platform authentication and key protection |
-| `packaging/`, `.github/` | Linux package definitions and CI workflows |
-| `assets/`, `locales/` | Fonts, icons, translations |
+| Path                        | Responsibility                                                   |
+| --------------------------- | ---------------------------------------------------------------- |
+| `src/`                      | Application, configuration, unlock orchestration                 |
+| `src/app.rs`, `src/app/`    | UI composition, action handlers, display updates                 |
+| `src/app/{setup,unlock,system_protection}.rs` | Independent access workflows and background operations |
+| `src/app/vault_access.rs`, `src/app/task.rs` | Workflow coordination and typed background tasks |
+| `src/view/`                 | egui widgets and view models, grouped by workflow                |
+| `crates/core/`              | Domain models, TOTP, encryption, recovery keys                   |
+| `crates/storage/`           | File formats, migration, atomic writes                           |
+| `crates/system-protection/` | Platform authentication and key protection                       |
+| `packaging/`, `.github/`    | Linux package definitions and CI workflows                       |
+| `assets/`, `locales/`       | Fonts, icons, translations                                       |
 
 - The app depends on all three crates; storage and system protection depend on core.
 - The library crates have no egui dependency. Native code stays in system protection.
+- `FactrApp` coordinates the three workflows and owns shared protection status. The active setup or unlock module is stored in `VaultAccess`. Workflow handlers never receive `FactrApp`.
 - Shared dependency versions are declared in the workspace `Cargo.toml`.
 - Vault protection and limitations: [SECURITY.md](SECURITY.md).
 - Platform setup: [system protection guide](user_guide/SYSTEM_PROTECTION_GUIDE.md).

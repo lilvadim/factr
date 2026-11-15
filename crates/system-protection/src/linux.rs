@@ -25,25 +25,23 @@ const POLKIT_NO_CANCELLATION_ID: &str = "";
 
 /// Identifies the current machine and session user without exposing secrets.
 fn device_id() -> Result<&'static str, String> {
-    static DEVICE: OnceLock<Result<String, String>> = OnceLock::new();
-    DEVICE
-        .get_or_init(|| {
-            let machine = fs::read_to_string("/etc/machine-id").map_err(|e| e.to_string())?;
-            if machine.trim().is_empty() {
-                return Err("Missing machine ID".to_string());
-            }
-            let connection = Connection::session().map_err(|e| e.to_string())?;
-            let bus =
-                zbus::blocking::fdo::DBusProxy::new(&connection).map_err(|e| e.to_string())?;
-            let name = connection.unique_name().ok_or("Missing session bus name")?;
-            let user = bus
-                .get_connection_unix_user(name.clone().into())
-                .map_err(|e| e.to_string())?;
-            Ok(format!("{}:{user}", machine.trim()))
-        })
-        .as_ref()
-        .map(String::as_str)
-        .map_err(Clone::clone)
+    static DEVICE: OnceLock<String> = OnceLock::new();
+    if let Some(device) = DEVICE.get() {
+        return Ok(device.as_str());
+    }
+    let machine = fs::read_to_string("/etc/machine-id").map_err(|e| e.to_string())?;
+    if machine.trim().is_empty() {
+        return Err("Missing machine ID".to_string());
+    }
+    let connection = Connection::session().map_err(|e| e.to_string())?;
+    let bus = zbus::blocking::fdo::DBusProxy::new(&connection).map_err(|e| e.to_string())?;
+    let name = connection.unique_name().ok_or("Missing session bus name")?;
+    let user = bus
+        .get_connection_unix_user(name.clone().into())
+        .map_err(|e| e.to_string())?;
+    Ok(DEVICE
+        .get_or_init(|| format!("{}:{user}", machine.trim()))
+        .as_str())
 }
 
 /// Checks whether a D-Bus service is running or can be activated.
@@ -77,6 +75,7 @@ pub fn check_availability() -> Result<bool, String> {
     if !service_available(&session, SECRET_SERVICE)? {
         return Err("Secret Service is unavailable. Configure GNOME Keyring or KWallet, then sign out and back in.".to_string());
     }
+    SecretService::connect(EncryptionType::Dh).map_err(|error| error.to_string())?;
     let system = Connection::system().map_err(|error| error.to_string())?;
     if !service_available(&system, POLKIT_SERVICE)? {
         return Err(

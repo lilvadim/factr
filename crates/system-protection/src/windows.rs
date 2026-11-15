@@ -54,16 +54,12 @@ impl Drop for Runtime {
     }
 }
 
-/// Checks Windows Hello availability on a WinRT worker thread.
+/// Checks Windows Hello availability on the current worker thread.
 pub fn check_availability() -> Result<bool, String> {
-    std::thread::spawn(|| {
-        let _runtime = Runtime::new()?;
-        KeyCredentialManager::IsSupportedAsync()
-            .and_then(|operation| operation.join())
-            .map_err(|error| error.to_string())
-    })
-    .join()
-    .map_err(|_| "Windows Hello availability worker stopped".to_string())?
+    let _runtime = Runtime::new()?;
+    KeyCredentialManager::IsSupportedAsync()
+        .and_then(|operation| operation.join())
+        .map_err(|error| error.to_string())
 }
 
 /// Opens the Windows sign-in settings page.

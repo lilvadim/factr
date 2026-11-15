@@ -80,20 +80,21 @@ fn call(
         .map_err(|e| e.to_string())
 }
 
-/// Checks protection availability using the cached device identifier.
+/// Rechecks system authentication and Secure Enclave without prompting.
 pub fn check_availability() -> Result<bool, String> {
-    device_id().map(|_| true)
+    call("available", &[], None, None, "").map(|_| true)
 }
 
 /// Returns the cached device identifier after checking protection availability.
 pub fn device_id() -> Result<String, String> {
-    static DEVICE: OnceLock<Result<String, String>> = OnceLock::new();
-    DEVICE
-        .get_or_init(|| {
-            String::from_utf8(call("available", &[], None, None, "")?.to_vec())
-                .map_err(|e| e.to_string())
-        })
-        .clone()
+    static DEVICE: OnceLock<String> = OnceLock::new();
+    if let Some(device) = DEVICE.get() {
+        return Ok(device.clone());
+    }
+    let device = String::from_utf8(call("available", &[], None, None, "")?.to_vec())
+        .map_err(|e| e.to_string())?;
+    let _ = DEVICE.set(device.clone());
+    Ok(device)
 }
 
 /// Creates a device-bound protected key using Secure Enclave.
