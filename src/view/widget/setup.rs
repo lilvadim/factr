@@ -64,6 +64,9 @@ impl Widget for SetupForm<'_> {
                                     .selectable(true)
                                     .wrap(),
                             );
+                            if ui.button(t!("copy")).clicked() {
+                                ui.ctx().copy_text(confirmation.key.to_string());
+                            }
                             ui.checkbox(&mut confirmation.saved, t!("access.recovery-saved"));
                             ui.horizontal(|ui| {
                                 if ui.button(t!("cancel")).clicked()

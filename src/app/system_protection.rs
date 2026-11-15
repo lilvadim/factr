@@ -30,8 +30,9 @@ enum SystemProtectionResult {
 impl SystemProtectionApp {
     /// Refreshes the local binding without discarding pending work.
     pub(super) fn reset_for_storage(&mut self, storage: Option<&Storage>) {
-        self.display.enabled = storage.is_some_and(is_enabled);
+        self.display.system_protection_bound = storage.is_some_and(is_enabled);
         self.display.check = None;
+        self.display.pending_user_enabled = None;
         self.display.error = None;
         self.display.action = None;
     }
@@ -43,7 +44,7 @@ impl SystemProtectionApp {
 
     /// Refreshes the binding after opening a vault.
     pub(super) fn vault_opened(&mut self, vault: &Vault) {
-        self.display.enabled = vault.protected_keys.iter().any(provider::is_local);
+        self.display.system_protection_bound = vault.protected_keys.iter().any(provider::is_local);
     }
 
     /// Reports whether a platform operation is pending.
@@ -72,6 +73,7 @@ impl SystemProtectionApp {
     ) -> Option<bool> {
         let mut available = None;
         if let Some(result) = self.task.poll() {
+            self.display.pending_user_enabled = None;
             match result.and_then(|result| self.handle_result(result, vault.as_deref_mut(), path)) {
                 Ok(changed) => available = changed,
                 Err(error) => self.display.error = Some(error),
@@ -93,6 +95,7 @@ impl SystemProtectionApp {
                 }),
                 SystemProtectionAction::SetEnabled(enabled) => {
                     if let Some(vault) = vault {
+                        self.display.pending_user_enabled = Some(enabled);
                         let id = vault.id;
                         let key = vault.master_key.clone();
                         let current = vault
@@ -109,6 +112,8 @@ impl SystemProtectionApp {
                                 },
                             )
                         });
+                    } else {
+                        self.display.pending_user_enabled = None;
                     }
                 }
             }
@@ -225,6 +230,31 @@ mod tests {
     }
 
     #[test]
+    fn failed_changes_restore_the_saved_checkbox_state() {
+        let ctx = egui::Context::default();
+        let path = std::env::temp_dir().join(format!("factr-{}.json", Uuid::new_v4()));
+        for enabled in [false, true] {
+            let mut app = SystemProtectionApp::default();
+            app.display.available = true;
+            app.display.system_protection_bound = enabled;
+            app.display.pending_user_enabled = Some(!enabled);
+            assert_eq!(app.display.system_protection_user_choice(), !enabled);
+            app.task
+                .start(&ctx, || Err("Authentication cancelled".to_string()));
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while app.is_busy() {
+                assert!(std::time::Instant::now() < deadline);
+                app.update(&ctx, &path, None, false);
+                std::thread::yield_now();
+            }
+            assert!(app.display.pending_user_enabled.is_none());
+            assert_eq!(app.display.system_protection_user_choice(), enabled);
+            assert!(app.display.error.is_some());
+        }
+        assert!(!path.exists());
+    }
+
+    #[test]
     fn availability_checks_keep_diagnostics_and_do_not_enroll_the_vault() {
         let mut app = SystemProtectionApp::default();
         let mut vault = Vault::create(Vec::new());
@@ -238,7 +268,7 @@ mod tests {
             .unwrap();
         assert_eq!(changed, Some(true));
         assert!(app.display.available);
-        assert!(!app.display.enabled);
+        assert!(!app.display.system_protection_bound);
         assert!(vault.protected_keys.is_empty());
         assert!(!path.exists());
         app.handle_result(

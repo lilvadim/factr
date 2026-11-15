@@ -24,7 +24,8 @@ impl Widget for UnlockForm<'_> {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     ui.add_enabled_ui(!busy, |ui| {
                         ui.heading(format!("{} {}", phosphor::VAULT, t!("vault-locked")));
-                        let needs_system_setup = !system.enabled || !system.available;
+                        let needs_system_setup =
+                            !system.system_protection_bound || !system.available;
                         if display.use_recovery_key || needs_system_setup {
                             ui.label(t!("access.system-restore-about"));
                             ui.strong(t!("access.restore-system-after-unlock"));
@@ -37,7 +38,7 @@ impl Widget for UnlockForm<'_> {
                             )
                         } else {
                             (
-                                system.enabled && system.available,
+                                system.system_protection_bound && system.available,
                                 t!("access.unlock-system"),
                                 UnlockAction::System,
                             )

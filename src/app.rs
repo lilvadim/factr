@@ -132,7 +132,7 @@ impl FactrApp {
             config,
         };
         app.reset_access();
-        if app.system_protection.display.enabled
+        if app.system_protection.display.system_protection_bound
             && let VaultAccess::Unlock(unlock) = &mut app.access
         {
             unlock.request_system_unlock();

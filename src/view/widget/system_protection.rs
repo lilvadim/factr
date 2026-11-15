@@ -126,7 +126,7 @@ impl Widget for SystemProtectionControl<'_> {
     /// Renders the shared protection status and queues requested changes.
     fn ui(self, ui: &mut Ui) -> Response {
         let display = self.display;
-        if display.enabled {
+        if display.system_protection_bound && display.available {
             egui::CollapsingHeader::new(t!("access.security-title"))
                 .id_salt("vault-security")
                 .default_open(false)
@@ -134,8 +134,6 @@ impl Widget for SystemProtectionControl<'_> {
                     if let Some(action) = system_protection_setup_info(ui, display, self.busy) {
                         display.action = Some(action);
                     }
-                    #[cfg(target_os = "linux")]
-                    linux_security_warning(ui);
                 });
         } else {
             ui.strong(t!("access.security-title"));
@@ -143,21 +141,20 @@ impl Widget for SystemProtectionControl<'_> {
                 display.action = Some(action);
             }
         }
-        let mut enabled = display.enabled;
+        let mut enabled = display.available && display.system_protection_user_choice();
         let response = ui.add_enabled(
             display.available && !self.busy,
             egui::Checkbox::new(&mut enabled, t!("access.enable-system")),
         );
         if response.changed() {
+            display.pending_user_enabled = Some(enabled);
             display.action = Some(SystemProtectionAction::SetEnabled(enabled));
         }
         if let Some(error) = &display.error {
             ui.colored_label(ui.visuals().error_fg_color, error);
         }
         #[cfg(target_os = "linux")]
-        if !display.enabled {
-            linux_security_warning(ui);
-        }
+        linux_security_warning(ui);
         response
     }
 }

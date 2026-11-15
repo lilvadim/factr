@@ -24,7 +24,7 @@ impl UnlockApp {
     pub(super) fn new(system: &SystemProtectionDisplay) -> Self {
         Self {
             display: UnlockDisplay {
-                use_recovery_key: !system.enabled || !system.available,
+                use_recovery_key: !system.system_protection_bound || !system.available,
                 ..Default::default()
             },
             ..Default::default()
@@ -44,7 +44,7 @@ impl UnlockApp {
 
     /// Offers recovery when the existing system binding cannot be used.
     pub(super) fn protection_changed(&mut self, system: &SystemProtectionDisplay) {
-        if !system.available || !system.enabled {
+        if !system.available || !system.system_protection_bound {
             self.require_recovery();
             if matches!(self.display.action, Some(UnlockAction::System)) {
                 self.display.action = None;
@@ -141,7 +141,7 @@ mod tests {
     #[test]
     fn automatic_unlock_waits_for_the_initial_availability_check() {
         let mut system = SystemProtectionDisplay {
-            enabled: true,
+            system_protection_bound: true,
             ..Default::default()
         };
         let mut app = UnlockApp::new(&system);
@@ -159,7 +159,7 @@ mod tests {
     #[test]
     fn unavailable_protection_selects_recovery_and_cancels_automatic_unlock() {
         let mut system = SystemProtectionDisplay {
-            enabled: true,
+            system_protection_bound: true,
             available: true,
             ..Default::default()
         };
