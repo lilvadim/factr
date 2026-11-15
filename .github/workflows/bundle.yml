@@ -24,11 +24,11 @@ on:
         type: boolean
         default: true
       build_linux_amd64:
-        description: Build Linux AMD64 AppImage
+        description: Build Linux AMD64 DEB, RPM and Arch
         type: boolean
         default: true
       build_linux_arm64:
-        description: Build Linux ARM64 AppImage
+        description: Build Linux ARM64 DEB, RPM and Arch
         type: boolean
         default: true
 
@@ -37,7 +37,6 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  APPIMAGE_EXTRACT_AND_RUN: "1"
 
 jobs:
   select_platforms:
@@ -58,7 +57,7 @@ jobs:
           import tomllib
 
           with open("Cargo.toml", "rb") as manifest:
-              version = tomllib.load(manifest)["package"]["version"]
+              version = tomllib.load(manifest)["workspace"]["package"]["version"]
           with open(os.environ["GITHUB_OUTPUT"], "a") as output:
               output.write(f"version={version}\ntag=v{version}\n")
           PY
@@ -74,8 +73,8 @@ jobs:
               { input: 'build_macos_intel', platform: 'macos-amd64', runner: 'macos-15', format: 'dmg', target: 'x86_64-apple-darwin', path: 'target/x86_64-apple-darwin/release/*.dmg' },
               { input: 'build_windows_amd64', platform: 'windows-amd64', runner: 'windows-2022', format: 'nsis', path: 'target/release/*setup.exe' },
               { input: 'build_windows_arm64', platform: 'windows-arm64', runner: 'windows-11-arm', format: 'nsis', target: 'aarch64-pc-windows-msvc', path: 'target/aarch64-pc-windows-msvc/release/*setup.exe' },
-              { input: 'build_linux_amd64', platform: 'linux-amd64', runner: 'ubuntu-22.04', format: 'appimage', path: 'target/release/*.AppImage' },
-              { input: 'build_linux_arm64', platform: 'linux-arm64', runner: 'ubuntu-22.04-arm', format: 'appimage', path: 'target/release/*.AppImage' },
+              { input: 'build_linux_amd64', platform: 'linux-amd64', runner: 'ubuntu-22.04', format: 'deb,rpm,archlinux', arch: 'amd64', path: 'target/packages/*' },
+              { input: 'build_linux_arm64', platform: 'linux-arm64', runner: 'ubuntu-22.04-arm', format: 'deb,rpm,archlinux', arch: 'arm64', path: 'target/packages/*' },
             ];
             const include = platforms.filter(platform => inputs[platform.input]);
             if (inputs.create_release && include.length === 0) {
@@ -103,20 +102,32 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libx11-dev libxi-dev libxrandr-dev libxcursor-dev libxinerama-dev libxkbcommon-dev libwayland-dev libgl1-mesa-dev libegl1-mesa-dev libvulkan-dev libudev-dev libssl-dev pkg-config patchelf
+          sudo apt-get install -y libx11-dev libxi-dev libxrandr-dev libxcursor-dev libxinerama-dev libxkbcommon-dev libwayland-dev libgl1-mesa-dev libegl1-mesa-dev libvulkan-dev libudev-dev libssl-dev pkg-config
       - name: Install Packager
+        if: runner.os != 'Linux'
         run: cargo install cargo-packager --version 0.11.8 --locked
+      - name: Install Linux Packager
+        if: runner.os == 'Linux'
+        env:
+          PACKAGE_ARCH: ${{ matrix.arch }}
+        run: |
+          curl -fsSL "https://github.com/goreleaser/nfpm/releases/download/v2.49.0/nfpm_2.49.0_Linux_${PACKAGE_ARCH}.tar.gz" -o "$RUNNER_TEMP/nfpm.tar.gz"
+          tar -xzf "$RUNNER_TEMP/nfpm.tar.gz" -C "$RUNNER_TEMP" nfpm
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
       - name: Install Rust Target
         if: matrix.target != ''
         run: rustup target add ${{ matrix.target }}
       - name: Package Release
-        if: matrix.target == ''
+        if: runner.os != 'Linux' && matrix.target == ''
         run: cargo packager --release --formats ${{ matrix.format }}
       - name: Package Targeted Release
         if: matrix.target != ''
         env:
           CARGO_BUILD_TARGET: ${{ matrix.target }}
         run: cargo packager --release --target ${{ matrix.target }} --formats ${{ matrix.format }}
+      - name: Package Linux Release
+        if: runner.os == 'Linux'
+        run: ./packaging/linux/package.sh
       - name: Name Package
         uses: actions/github-script@v7
         env:
@@ -129,17 +140,19 @@ jobs:
             const fs = require('node:fs');
             const path = require('node:path');
             const directory = path.dirname(process.env.PACKAGE_PATH);
-            const suffix = path.basename(process.env.PACKAGE_PATH).slice(1);
-            const files = fs.readdirSync(directory).filter(name => name.endsWith(suffix));
-            if (files.length !== 1) {
-              throw new Error(`Expected one package in ${process.env.PACKAGE_PATH}, found ${files.length}`);
-            }
-            const extension = path.extname(files[0]);
-            const installer = process.env.PACKAGE_FORMAT === 'nsis' ? '-setup' : '';
-            const filename = `Factr_${process.env.PACKAGE_VERSION}_${process.env.PACKAGE_PLATFORM}${installer}${extension}`;
             const outputDirectory = 'target/packages-pipeline-tmp';
             fs.mkdirSync(outputDirectory, { recursive: true });
-            fs.copyFileSync(path.join(directory, files[0]), path.join(outputDirectory, filename));
+            for (const format of process.env.PACKAGE_FORMAT.split(',')) {
+              const extension = format === 'archlinux' ? '.pkg.tar.zst' : format === 'nsis' ? '.exe' : `.${format}`;
+              const suffix = format === 'nsis' ? `-setup${extension}` : extension;
+              const files = fs.readdirSync(directory).filter(name => name.endsWith(suffix));
+              if (files.length !== 1) {
+                throw new Error(`Expected one ${format} package in ${directory}, found ${files.length}`);
+              }
+              const installer = format === 'nsis' ? '-setup' : '';
+              const filename = `Factr_${process.env.PACKAGE_VERSION}_${process.env.PACKAGE_PLATFORM}${installer}${extension}`;
+              fs.copyFileSync(path.join(directory, files[0]), path.join(outputDirectory, filename));
+            }
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:

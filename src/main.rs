@@ -9,9 +9,7 @@ use crate::app::FactrApp;
 
 mod app;
 mod config;
-mod encrypted_storage;
 mod phosphor;
-mod vault;
 mod view;
 
 rust_i18n::i18n!("locales", fallback = "en");

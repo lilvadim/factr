@@ -7,6 +7,7 @@ settings-label: Settings
 delete: Delete
 edit: Edit
 save: Save
+copy: Copy
 cancel: Cancel
 vault-locked: Vault is Locked
 enter-password: Enter Password
@@ -28,6 +29,41 @@ setup:
   about-vault: This password will be asked every time you open the app to unlock the vault.
   remember: Remember it!
   enter-password: Enter password
+access:
+  restore-system-after-unlock: "After unlocking, set up system protection in Settings."
+  system-restore-about: "Your vault is already set up. If you moved it to another device or system protection is unavailable, unlock it with your recovery key."
+  security-title: "Vault Security"
+  security-intro: "There are two ways to unlock your vault:"
+  security-system-title: "1. System Protection — recommended for everyday use"
+  security-system-about: "Unlock with your system password, PIN, or biometrics, depending on your device."
+  security-recovery-title: "2. Recovery Key — your backup access"
+  security-recovery-about: "A long code you must save somewhere safe, separately from your vault. Use it to move your vault to another device or restore access if system protection stops working."
+  security-recovery-only: "Without system protection, you will need your recovery key every time you unlock the vault."
+  windows-setup: "Set up Windows Hello to use system protection. A PIN is enough; biometrics are optional."
+  windows-ready: "Windows Hello is ready. System protection is available."
+  windows-not-ready: "Windows Hello is not available yet. Set it up, then click Done again."
+  linux-setup: "Configure GNOME Keyring or KWallet and your desktop’s Polkit authentication agent, then check again."
+  system-ready: "System protection is available on this device."
+  system-not-ready: "System protection is not available yet. Follow the setup guide, then check again."
+  system-check-failed: "Could not confirm system protection availability:"
+  open-signin-settings: "Open sign-in settings"
+  system-guide: "How to set up system protection"
+  check-again: "Check again"
+  about: Your codes are encrypted with a random key. Keep the recovery key separately to restore or transfer your vault.
+  migrate-title: Upgrade vault protection
+  migrate-about: Enter your old password. After you save the recovery key, V2 replaces V1 without keeping a backup. The old password will no longer unlock this file.
+  continue: Continue
+  recovery-title: Save your recovery key
+  recovery-about: Save this key somewhere safe, separately from the vault. It opens a copy on any supported OS. Without this key or working system protection, access cannot be restored.
+  recovery-saved: I saved the recovery key separately
+  recovery-key: Recovery key
+  use-recovery-key: Use recovery key...
+  enable-system: Unlock with system authentication on this device
+  system-unavailable: System protection is unavailable here. The vault can be opened with the recovery key.
+  unlock-system: Unlock with system authentication
+  system-reason: Unlock your Factr vault
+  linux-security-warning-title: Linux Security Warning
+  linux-security-warning: Due to the way Secret Service (GNOME Keyring, KWallet) stores the key, other apps running as your user may access your vault without asking for your password or fingerprint.
 add:
   method: Input Method
   manual-input: Manual Input
@@ -37,6 +73,7 @@ add:
 settings:
   close-after-copy: Close after Copy
   always-on-top: Always on Top
+  wayland-unsupported: Not supported on Wayland
   toolbar-labels: Show Labels on Toolbar Buttons
   theme: Theme
   themes:
@@ -50,3 +87,44 @@ sort:
   username: Username
   first-added: First Added
   last-modified: Last Modified
+
+errors:
+  expected-v2: "This vault needs migration. Reopen it to continue."
+  system-key-missing: "The system key is unavailable on this device. Use your recovery key."
+  no-vault: "The vault is locked. Unlock it to continue."
+  no-account: "This account no longer exists."
+  background-stopped: "The background operation stopped unexpectedly. Try again."
+  invalid-secret: "Enter a valid Base32 secret key."
+  invalid-digits: "The code must have 6, 7, or 8 digits."
+  invalid-period: "The code period must be greater than zero."
+  secret-too-short: "The secret key is too short. Check the key supplied by the service."
+  invalid-algorithm: "The OTP algorithm is not supported."
+  invalid-account-name: "Check the username. It must not contain a colon."
+  invalid-issuer: "Check the issuer name and make sure it matches the OTP link."
+  invalid-otp-url: "Enter a valid otpauth://totp link."
+  invalid-recovery-format: "Enter the complete recovery key starting with FR2-."
+  incorrect-recovery-key: "The recovery key is incorrect or the vault protection data is damaged."
+  invalid-vault-data: "The vault contains invalid or damaged data."
+  random-generation-failed: "Could not generate secure random data. Try again."
+  encryption-failed: "Could not encrypt the vault data."
+  decryption-failed: "Could not decrypt the vault. The key is incorrect or the data is damaged."
+  vault-not-found: "The vault file was not found. Check its location."
+  vault-read-denied: "Access to the vault file was denied. Check file permissions."
+  vault-read-failed: "Could not read the vault file. Check its location and access permissions."
+  vault-write-denied: "The vault could not be saved. Check write permissions for its folder."
+  vault-write-failed: "Could not save the vault. Check disk space and access permissions."
+  invalid-vault-format: "The vault file is damaged or its format is not supported."
+  vault-serialize-failed: "Could not prepare the vault data for saving."
+  vault-changed: "The vault file changed during setup. Cancel and reopen it."
+  already-current: "This vault is already set up. Reopen it to unlock."
+  unsupported-platform: "System protection is not supported on this operating system."
+  non-local-key: "This system key cannot be used on this device. Use your recovery key."
+  invalid-system-key: "The system key data is damaged. Use your recovery key."
+  authentication-cancelled: "System authentication was cancelled."
+  authentication-denied: "System authentication was denied. Try again or use your recovery key."
+  missing-policy: "Factr's Polkit policy is missing. Install Factr from a DEB, RPM, or Arch package."
+  secret-service-unavailable: "Secret Service is unavailable. Set up GNOME Keyring, KWallet, or another compatible service, then sign out and back in."
+  polkit-unavailable: "Polkit is unavailable. Check your desktop authentication service."
+  device-identity-unavailable: "Could not identify this device or user session."
+  settings-unavailable: "Could not open system settings. Open sign-in options manually."
+  system-protection-failed: "System protection failed. Check your system settings and try again, or use your recovery key."

@@ -1,19 +1,21 @@
+pub mod setup;
+pub mod system_protection;
+pub mod unlock;
+
 use egui::ThemePreference;
 use totp_rs::Algorithm;
 use uuid::Uuid;
 
-use crate::{
-    config::{AccountSort, Config},
-    vault::{self, Account, Vault},
-};
+use crate::config::{AccountSort, Config};
+use factr_core::vault::{self, Account, Vault};
 
 pub struct VaultDisplay {
     pub accounts: Vec<AccountDisplay>,
 }
 
 impl VaultDisplay {
-    pub fn from_vault(vault: &Vault) -> Result<VaultDisplay, String> {
-        let accounts: Result<Vec<AccountDisplay>, String> = vault
+    pub fn from_vault(vault: &Vault) -> Result<VaultDisplay, vault::AccountError> {
+        let accounts: Result<Vec<AccountDisplay>, vault::AccountError> = vault
             .accounts
             .iter()
             .map(AccountDisplay::from_account)
@@ -35,7 +37,7 @@ pub struct AccountDisplay {
 }
 
 impl AccountDisplay {
-    pub fn from_account(account: &Account) -> Result<Self, String> {
+    pub fn from_account(account: &Account) -> Result<Self, vault::AccountError> {
         let (code, remaining_secs) = account.current_state()?;
         Ok(Self {
             id: account.id,
@@ -70,9 +72,7 @@ impl SettingsDisplay {
 
 pub struct AppDisplay {
     pub filter_search: String,
-    pub password: String,
     pub need_default_focus: bool,
-    pub setup_display: Option<SetupDisplay>,
     pub add_ui: bool,
     pub add_display: Option<AccountFieldsDisplay>,
     pub settings_ui: bool,
@@ -85,9 +85,7 @@ impl Default for AppDisplay {
     fn default() -> Self {
         Self {
             filter_search: Default::default(),
-            password: Default::default(),
             need_default_focus: true,
-            setup_display: Default::default(),
             add_ui: Default::default(),
             add_display: Default::default(),
             settings_ui: Default::default(),
@@ -126,7 +124,7 @@ impl EditDisplay {
 }
 
 impl AccountFieldsDisplay {
-    pub fn to_account(&self, position: usize) -> Result<Account, String> {
+    pub fn to_account(&self, position: usize) -> Result<Account, vault::AccountError> {
         if self.method == AddMethod::OtpAuthUrl {
             return Account::from_otp_auth_url(&self.otp_auth_url, position);
         }
@@ -150,22 +148,6 @@ impl AccountFieldsDisplay {
                 self.manual.secret.clone(),
                 position,
             )
-        }
-    }
-}
-
-pub(crate) struct SetupDisplay {
-    pub password: String,
-    pub error: Option<String>,
-    pub need_default_focus: bool,
-}
-
-impl Default for SetupDisplay {
-    fn default() -> Self {
-        Self {
-            password: Default::default(),
-            error: Default::default(),
-            need_default_focus: true,
         }
     }
 }

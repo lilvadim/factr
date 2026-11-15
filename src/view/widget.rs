@@ -1,6 +1,10 @@
+pub mod setup;
+pub mod system_protection;
+pub mod unlock;
+
 use crate::phosphor;
 use egui::{
-    ComboBox, DragValue, Frame, Id, Label, Response, RichText, Sense, TextEdit, Ui, UiBuilder,
+    ComboBox, DragValue, Frame, Id, Key, Label, Response, RichText, Sense, TextEdit, Ui, UiBuilder,
     Widget, vec2,
 };
 use rust_i18n::t;
@@ -10,6 +14,27 @@ use crate::config::{AccountSort, SortField};
 use crate::view::model::{
     AccountDisplay, AccountFieldsDisplay, AddMethod, ManualInput, ManualInputExtra,
 };
+
+/// Renders a secret input field with one-time default focus.
+pub(crate) fn access_input(
+    ui: &mut Ui,
+    text: &mut zeroize::Zeroizing<String>,
+    need_default_focus: &mut bool,
+    busy: bool,
+    hint: &str,
+) {
+    let input = ui.add(
+        TextEdit::singleline(&mut **text)
+            .id(egui::Id::unique("vault-access-input"))
+            .desired_width(ui.available_width())
+            .password(true)
+            .hint_text(t!(hint)),
+    );
+    if *need_default_focus && !busy {
+        input.request_focus();
+        *need_default_focus = false;
+    }
+}
 
 pub struct AccountSortControl<'a>(pub &'a mut AccountSort);
 
@@ -303,6 +328,32 @@ impl Widget for AccountInputForm<'_> {
         })
         .response
     }
+}
+
+/// Consumes a form shortcut only when its UI layer is active.
+pub(crate) fn form_key(ui: &mut Ui, key: Key) -> bool {
+    if !ui.is_enabled() {
+        return false;
+    }
+    let layer = ui.layer_id();
+    let focused_layer = ui
+        .memory(|memory| memory.focused())
+        .and_then(|id| ui.ctx().read_response(id))
+        .map(|response| response.layer_id);
+    if focused_layer.is_some_and(|focused| focused != layer) {
+        return false;
+    }
+    let is_active = ui.memory(|memory| {
+        memory
+            .layer_ids()
+            .filter(|id| {
+                memory.areas().is_visible(id)
+                    && matches!(id.order, egui::Order::Middle | egui::Order::Foreground)
+            })
+            .last()
+            .is_none_or(|id| id == layer)
+    });
+    is_active && ui.input_mut(|input| input.consume_key(egui::Modifiers::NONE, key))
 }
 
 pub(crate) struct AccountAddForm<'a> {
