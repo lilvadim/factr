@@ -8,6 +8,7 @@ delete: Удалить
 edit: Редактировать
 save: Сохранить
 copy: Скопировать
+export-secret-url: Экспорт — Скопировать секрет как URL
 cancel: Отмена
 vault-locked: Хранилище заблокировано
 enter-password: Введите пароль

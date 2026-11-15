@@ -29,7 +29,7 @@ use rust_i18n::t;
 
 use crate::config::{AutoLockTimeout, Config};
 
-use factr_core::vault::Vault;
+use factr_core::vault::{AccountError, Vault};
 
 mod auto_lock;
 mod error;
@@ -654,6 +654,10 @@ impl FactrApp {
                                     actions.push(MainScreenAction::Edit(i));
                                     ui.close();
                                 }
+                                if ui.button(t!("export-secret-url")).clicked() {
+                                    actions.push(MainScreenAction::CopySecretUrl(i));
+                                    ui.close();
+                                }
                                 if ui.button(t!("delete")).clicked() {
                                     actions.push(MainScreenAction::Delete(i));
                                 }
@@ -765,6 +769,29 @@ impl FactrApp {
                 }
             }
             MainScreenAction::CancelEdit => self.display.edit_display = None,
+            MainScreenAction::CopySecretUrl(id) => {
+                self.error = self
+                    .vault
+                    .as_ref()
+                    .ok_or(AppError::NoVault)
+                    .and_then(|vault| {
+                        vault
+                            .accounts
+                            .iter()
+                            .find(|account| account.id == id)
+                            .ok_or(AppError::NoAccount)
+                    })
+                    .and_then(|account| {
+                        account
+                            .totp
+                            .to_url()
+                            .map_err(AccountError::InvalidParameters)
+                            .map_err(AppError::from)
+                    })
+                    .map(|url| ctx.copy_text(url))
+                    .err()
+                    .map(|error| error_messages::app_error(&error));
+            }
             MainScreenAction::SaveEdit => {
                 let Some(edit) = &self.display.edit_display else {
                     return;
@@ -934,6 +961,7 @@ impl FactrApp {
 }
 
 enum MainScreenAction {
+    CopySecretUrl(Uuid),
     MoveAccount(Uuid, Uuid),
     Edit(Uuid),
     SaveEdit,
