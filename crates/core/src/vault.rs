@@ -1,4 +1,3 @@
-use std::fmt::Display;
 use uuid::Uuid;
 
 use aes_gcm::{
@@ -19,23 +18,7 @@ pub const DEFAULT_DIGITS: usize = 6;
 pub const DEFAULT_PERIOD: u64 = 30;
 const DEFAULT_SKEW: u16 = 1;
 
-#[derive(Debug)]
-pub enum VaultDecryptError {
-    DecryptFailed,
-    Other(String),
-}
-
-impl Display for VaultDecryptError {
-    /// Formats a vault decryption error.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::DecryptFailed => {
-                f.write_str("Cannot decrypt the vault: incorrect key or damaged data")
-            }
-            Self::Other(error) => f.write_str(error),
-        }
-    }
-}
+pub use crate::error::{AccountError, VaultDecryptError, VaultEncryptError};
 
 #[derive(Serialize, Deserialize)]
 pub struct Account {
@@ -57,9 +40,9 @@ impl Account {
             custom_position,
         }
     }
-    pub fn from_otp_auth_url(otp_auth_url: &str, position: usize) -> Result<Self, String> {
+    pub fn from_otp_auth_url(otp_auth_url: &str, position: usize) -> Result<Self, AccountError> {
         Ok(Self::new(
-            Totp::from_url(otp_auth_url).map_err(|e| format!("TOTP URL Init Error: {e}"))?,
+            Totp::from_url(otp_auth_url).map_err(AccountError::InvalidOtpAuthUrl)?,
             position,
         ))
     }
@@ -69,7 +52,7 @@ impl Account {
         account_name: String,
         secret: String,
         position: usize,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, AccountError> {
         Self::from_manual(
             issuer,
             account_name,
@@ -89,9 +72,8 @@ impl Account {
         period: u64,
         secret_b32: String,
         position: usize,
-    ) -> Result<Self, String> {
-        let secret =
-            Secret::try_from_base32(&secret_b32).map_err(|e| format!("Wrong Secret: {e}"))?;
+    ) -> Result<Self, AccountError> {
+        let secret = Secret::try_from_base32(&secret_b32).map_err(AccountError::InvalidSecret)?;
         let totp = init_totp(
             issuer,
             account_name,
@@ -103,7 +85,7 @@ impl Account {
         Ok(Self::new(totp, position))
     }
 
-    pub fn current_state(&self) -> Result<(String, u64), String> {
+    pub fn current_state(&self) -> Result<(String, u64), AccountError> {
         let totp = &self.totp;
         let remaining = totp.ttl();
         let code = totp.generate_current().to_string();
@@ -159,8 +141,8 @@ pub fn init_totp(
     digits: usize,
     period: u64,
     secret: Vec<u8>,
-) -> Result<Totp, String> {
-    let digits = u8::try_from(digits).map_err(|e| format!("TOTP Init Error: {e}"))?;
+) -> Result<Totp, AccountError> {
+    let digits = u8::try_from(digits).map_err(|_| AccountError::InvalidDigits)?;
     let short_secret = secret.len() == LEGACY_SECRET_LEN;
     let builder = Builder::new()
         .with_algorithm(algo)
@@ -174,9 +156,7 @@ pub fn init_totp(
         // Google Authenticator Compatibility
         builder.build_noncompliant()
     } else {
-        builder
-            .build()
-            .map_err(|e| format!("TOTP Init Error: {e}"))?
+        builder.build().map_err(AccountError::InvalidParameters)?
     };
     Ok(totp)
 }
@@ -188,10 +168,14 @@ pub fn random_key() -> Zeroizing<[u8; KEY_LEN]> {
 }
 
 /// Encrypts data and authenticates its associated context.
-pub fn encrypt_bound(secret: &[u8], key: &[u8; KEY_LEN], context: &[u8]) -> Result<String, String> {
+pub fn encrypt_bound(
+    secret: &[u8],
+    key: &[u8; KEY_LEN],
+    context: &[u8],
+) -> Result<String, VaultEncryptError> {
     use aes_gcm::aead::Payload;
-    let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| e.to_string())?;
-    let nonce = Nonce::try_generate().map_err(|e| e.to_string())?;
+    let cipher = Aes256Gcm::new(key.into());
+    let nonce = Nonce::try_generate().map_err(|_| VaultEncryptError::RandomGenerationFailed)?;
     let cipher_text = cipher
         .encrypt(
             &nonce,
@@ -200,7 +184,7 @@ pub fn encrypt_bound(secret: &[u8], key: &[u8; KEY_LEN], context: &[u8]) -> Resu
                 aad: context,
             },
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(|_| VaultEncryptError::EncryptionFailed)?;
     let mut combined = nonce.to_vec();
     combined.extend_from_slice(&cipher_text);
     Ok(BASE64_STANDARD.encode(&combined))
@@ -215,14 +199,12 @@ pub fn decrypt_bound(
     use aes_gcm::aead::Payload;
     let combined = BASE64_STANDARD
         .decode(encrypted_secret_b64)
-        .map_err(|e| VaultDecryptError::Other(e.to_string()))?;
+        .map_err(VaultDecryptError::InvalidEncoding)?;
     let (nonce_bytes, cipher_text) = combined
         .split_at_checked(NONCE_LEN)
-        .ok_or_else(|| VaultDecryptError::Other("Invalid encrypted secret length".to_string()))?;
-    let cipher =
-        Aes256Gcm::new_from_slice(key).map_err(|e| VaultDecryptError::Other(e.to_string()))?;
-    let nonce =
-        Nonce::try_from(nonce_bytes).map_err(|e| VaultDecryptError::Other(e.to_string()))?;
+        .ok_or(VaultDecryptError::InvalidPayload)?;
+    let cipher = Aes256Gcm::new(key.into());
+    let nonce = Nonce::try_from(nonce_bytes).map_err(|_| VaultDecryptError::InvalidPayload)?;
     cipher
         .decrypt(
             &nonce,

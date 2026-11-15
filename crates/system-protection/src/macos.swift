@@ -21,9 +21,25 @@ private struct Request: Decodable {
     let reason: String
 }
 
+private struct NativeError: Encodable {
+    let domain: String
+    let code: Int
+    let message: String
+    let cancelled: Bool
+
+    init(_ error: Error) {
+        let native = error as NSError
+        domain = native.domain
+        code = native.code
+        message = String(describing: error)
+        cancelled = (native.domain == LAError.errorDomain && [LAError.userCancel.rawValue, LAError.systemCancel.rawValue, LAError.appCancel.rawValue].contains(native.code))
+            || (native.domain == NSOSStatusErrorDomain && native.code == Int(errSecUserCanceled))
+    }
+}
+
 private struct Reply: Encodable {
     var data: Data?
-    var error: String?
+    var error: NativeError?
 }
 
 /// Returns the hardware identifier used to associate keys with this device.
@@ -119,7 +135,7 @@ public func factrSystemProtection(_ bytes: UnsafePointer<UInt8>, _ count: Int) -
             let request = try JSONDecoder().decode(Request.self, from: Data(bytes: bytes, count: count))
             reply = Reply(data: try execute(request))
         } catch {
-            reply = Reply(error: error.localizedDescription)
+            reply = Reply(error: NativeError(error))
         }
         guard let data = try? JSONEncoder().encode(reply), let string = String(data: data, encoding: .utf8) else { return nil }
         return strdup(string)

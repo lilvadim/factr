@@ -37,7 +37,7 @@ impl FactrApp {
             .exists()
             .then(|| {
                 Storage::read(path)
-                    .inspect_err(|err| error = Some(err.to_owned()))
+                    .inspect_err(|err| error = Some(super::error_messages::storage_error(err)))
                     .ok()
             })
             .flatten();

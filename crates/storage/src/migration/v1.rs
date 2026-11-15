@@ -1,5 +1,6 @@
+use super::MigrationError;
 use argon2::{Argon2, password_hash::phc::SaltString};
-use factr_core::vault::{self, Account, KEY_LEN, Vault, VaultDecryptError};
+use factr_core::vault::{self, Account, KEY_LEN, Vault};
 use serde::{Deserialize, Serialize};
 use totp_rs::Algorithm;
 use uuid::Uuid;
@@ -21,7 +22,7 @@ pub struct EncryptedAccount {
 
 impl EncryptedAccount {
     /// Decrypts a V1 account into its domain representation.
-    pub fn decrypt(&self, key: &[u8; KEY_LEN]) -> Result<Account, VaultDecryptError> {
+    pub fn decrypt(&self, key: &[u8; KEY_LEN]) -> Result<Account, MigrationError> {
         let secret = vault::decrypt_bound(&self.encrypted_secret_b64, key, &[])?;
         let totp = vault::init_totp(
             self.issuer.to_owned(),
@@ -31,7 +32,7 @@ impl EncryptedAccount {
             self.period,
             secret.to_vec(),
         )
-        .map_err(|e| VaultDecryptError::Other(e.to_string()))?;
+        .map_err(MigrationError::InvalidAccount)?;
         Ok(Account {
             id: self.id,
             totp,
@@ -43,7 +44,10 @@ impl EncryptedAccount {
 
     /// Encodes an account in the V1 storage format.
     #[cfg(test)]
-    pub fn encrypt_account(account: &Account, key: &[u8; KEY_LEN]) -> Result<Self, String> {
+    pub fn encrypt_account(
+        account: &Account,
+        key: &[u8; KEY_LEN],
+    ) -> Result<Self, vault::VaultEncryptError> {
         Ok(Self {
             id: account.id,
             created_at: account.created_at,
@@ -70,14 +74,13 @@ impl LegacyStorageV1 {
     pub const SEALED_CHECK: &[u8] = b"FACTR_AUTH_CHECK";
 
     /// Decrypts V1 accounts and creates a vault with a new random key.
-    pub fn decrypt(&self, password: &str) -> Result<Vault, VaultDecryptError> {
-        let master_key =
-            Zeroizing::new(master_key(password, &self.salt_b64).map_err(VaultDecryptError::Other)?);
+    pub fn decrypt(&self, password: &str) -> Result<Vault, MigrationError> {
+        let master_key = Zeroizing::new(master_key(password, &self.salt_b64)?);
         let check_value = vault::decrypt_bound(&self.sealed_check, &master_key, &[])?;
         if check_value.as_slice() != LegacyStorageV1::SEALED_CHECK {
-            return Err(VaultDecryptError::Other("Wrong Check Value".to_string()));
+            return Err(MigrationError::InvalidCheck);
         }
-        let accounts: Result<Vec<Account>, VaultDecryptError> = self
+        let accounts: Result<Vec<Account>, MigrationError> = self
             .accounts
             .iter()
             .map(|account| account.decrypt(&master_key))
@@ -87,14 +90,14 @@ impl LegacyStorageV1 {
 }
 
 /// Derives the V1 encryption key from the legacy password and encoded salt.
-fn master_key(password: &str, salt_b64: &str) -> Result<[u8; KEY_LEN], String> {
+fn master_key(password: &str, salt_b64: &str) -> Result<[u8; KEY_LEN], MigrationError> {
     let argon2 = Argon2::default();
-    let salt = SaltString::from_b64(salt_b64).map_err(|e| e.to_string())?;
+    let salt = SaltString::from_b64(salt_b64).map_err(MigrationError::InvalidSalt)?;
     let mut key = [0u8; KEY_LEN];
     argon2
         // V1 derives the key from the encoded salt, not its decoded bytes.
         .hash_password_into(password.as_bytes(), salt.as_bytes(), &mut key)
-        .map_err(|e| e.to_string())?;
+        .map_err(MigrationError::KeyDerivation)?;
     Ok(key)
 }
 

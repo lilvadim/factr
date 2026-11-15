@@ -1,11 +1,11 @@
 use std::path::Path;
 
 use factr_core::vault::{KEY_LEN, ProtectedVaultKey, Vault};
-use factr_storage::{ProtectedStorageV2, Storage};
+use factr_storage::{ProtectedStorageV2, Storage, StorageError};
 use factr_system_protection as provider;
 use uuid::Uuid;
 
-use super::task::Task;
+use super::{error::AppError, error_messages, task::Task};
 use crate::view::{
     model::system_protection::{SystemProtectionAction, SystemProtectionDisplay},
     widget::system_protection::SystemProtectionControl,
@@ -14,11 +14,11 @@ use crate::view::{
 #[derive(Default)]
 pub(super) struct SystemProtectionApp {
     pub(super) display: SystemProtectionDisplay,
-    task: Task<SystemProtectionResult>,
+    task: Task<SystemProtectionResult, AppError>,
 }
 
 enum SystemProtectionResult {
-    Availability(Result<bool, String>),
+    Availability(Result<bool, provider::SystemProtectionError>),
     #[cfg(target_os = "windows")]
     SettingsOpened,
     ChangeReady {
@@ -74,7 +74,12 @@ impl SystemProtectionApp {
         let mut available = None;
         if let Some(result) = self.task.poll() {
             self.display.pending_user_enabled = None;
-            match result.and_then(|result| self.handle_result(result, vault.as_deref_mut(), path)) {
+            match result
+                .map_err(error_messages::task_error)
+                .and_then(|result| {
+                    self.handle_result(result, vault.as_deref_mut(), path)
+                        .map_err(|error| error_messages::app_error(&error))
+                }) {
                 Ok(changed) => available = changed,
                 Err(error) => self.display.error = Some(error),
             }
@@ -91,7 +96,9 @@ impl SystemProtectionApp {
                 }),
                 #[cfg(target_os = "windows")]
                 SystemProtectionAction::OpenSettings => self.task.start(ctx, || {
-                    provider::open_settings().map(|_| SystemProtectionResult::SettingsOpened)
+                    provider::open_settings()
+                        .map(|_| SystemProtectionResult::SettingsOpened)
+                        .map_err(AppError::from)
                 }),
                 SystemProtectionAction::SetEnabled(enabled) => {
                     if let Some(vault) = vault {
@@ -105,12 +112,12 @@ impl SystemProtectionApp {
                             .cloned();
                         let reason = rust_i18n::t!("access.system-reason").to_string();
                         self.task.start(ctx, move || {
-                            set_system_protection(id, &key, current.as_ref(), enabled, &reason).map(
-                                |protected_key| SystemProtectionResult::ChangeReady {
+                            set_system_protection(id, &key, current.as_ref(), enabled, &reason)
+                                .map(|protected_key| SystemProtectionResult::ChangeReady {
                                     id,
                                     protected_key,
-                                },
-                            )
+                                })
+                                .map_err(AppError::from)
                         });
                     } else {
                         self.display.pending_user_enabled = None;
@@ -130,12 +137,13 @@ impl SystemProtectionApp {
         result: SystemProtectionResult,
         vault: Option<&mut Vault>,
         path: &Path,
-    ) -> Result<Option<bool>, String> {
+    ) -> Result<Option<bool>, AppError> {
         match result {
             SystemProtectionResult::Availability(result) => {
                 let available = matches!(result, Ok(true));
                 self.display.available = available;
-                self.display.check = Some(result);
+                self.display.check =
+                    Some(result.map_err(|error| error_messages::system_protection_error(&error)));
                 Ok(Some(available))
             }
             #[cfg(target_os = "windows")]
@@ -165,7 +173,7 @@ pub fn apply_system_protection_changes(
     path: &Path,
     vault: &mut Vault,
     protected_key: Option<ProtectedVaultKey>,
-) -> Result<(), String> {
+) -> Result<(), StorageError> {
     let old = vault.protected_keys.clone();
     vault.protected_keys.retain(|key| !provider::is_local(key));
     if let Some(protected_key) = protected_key {
@@ -187,7 +195,7 @@ fn set_system_protection(
     current: Option<&ProtectedVaultKey>,
     enabled: bool,
     reason: &str,
-) -> Result<Option<ProtectedVaultKey>, String> {
+) -> Result<Option<ProtectedVaultKey>, provider::SystemProtectionError> {
     let protected_key = if enabled {
         Some(provider::protect(id, key, reason)?)
     } else {
@@ -239,8 +247,11 @@ mod tests {
             app.display.system_protection_bound = enabled;
             app.display.pending_user_enabled = Some(!enabled);
             assert_eq!(app.display.system_protection_user_choice(), !enabled);
-            app.task
-                .start(&ctx, || Err("Authentication cancelled".to_string()));
+            app.task.start(&ctx, || {
+                Err(AppError::SystemProtection(
+                    provider::SystemProtectionError::AuthenticationCancelled,
+                ))
+            });
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
             while app.is_busy() {
                 assert!(std::time::Instant::now() < deadline);
@@ -272,7 +283,9 @@ mod tests {
         assert!(vault.protected_keys.is_empty());
         assert!(!path.exists());
         app.handle_result(
-            SystemProtectionResult::Availability(Err("service unavailable".to_string())),
+            SystemProtectionResult::Availability(Err(
+                provider::SystemProtectionError::SecretServiceUnavailable,
+            )),
             None,
             &path,
         )

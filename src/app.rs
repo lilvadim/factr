@@ -31,10 +31,14 @@ use crate::config::Config;
 
 use factr_core::vault::Vault;
 
+mod error;
+mod error_messages;
 mod setup;
 mod system_protection;
 mod task;
 mod unlock;
+use error::AppError;
+
 mod vault_access;
 
 #[cfg(target_os = "macos")]
@@ -140,7 +144,7 @@ impl FactrApp {
         app
     }
 
-    fn lock_vault(&mut self) -> Result<(), String> {
+    fn lock_vault(&mut self) -> Result<(), AppError> {
         self.save_storage()?;
         let _ = self.vault.take();
         self.display.edit_display = None;
@@ -679,14 +683,17 @@ impl FactrApp {
     fn handle_action(&mut self, ctx: &egui::Context, action: MainScreenAction) {
         match action {
             MainScreenAction::LockVault => {
-                self.error = self.lock_vault().err();
+                self.error = self
+                    .lock_vault()
+                    .err()
+                    .map(|error| error_messages::app_error(&error));
             }
             MainScreenAction::Add => {
                 let display = self.display.add_display.as_mut().expect("No Add Input");
                 let result = self
                     .vault
                     .as_mut()
-                    .ok_or("No Vault".to_string())
+                    .ok_or(AppError::NoVault)
                     .and_then(|vault| {
                         let account = display.to_account(vault.accounts.len())?;
                         vault.accounts.push(account);
@@ -694,11 +701,14 @@ impl FactrApp {
                     });
 
                 if result.is_ok() {
-                    self.error = self.save_storage().err();
+                    self.error = self
+                        .save_storage()
+                        .err()
+                        .map(|error| error_messages::app_error(&error));
                     self.display.add_ui = false;
                     self.display.add_display = None;
                 } else {
-                    display.error = result.err();
+                    display.error = result.err().map(|error| error_messages::app_error(&error));
                 }
             }
             MainScreenAction::CancelAdd => {
@@ -723,22 +733,26 @@ impl FactrApp {
                 let result = self
                     .vault
                     .as_ref()
-                    .ok_or("No Vault".to_string())
+                    .ok_or(AppError::NoVault)
                     .and_then(|vault| {
                         vault
                             .accounts
                             .iter()
                             .find(|account| account.id == id)
-                            .ok_or("No Account".to_string())
+                            .ok_or(AppError::NoAccount)
                     })
-                    .and_then(|account| edit.input.to_account(account.custom_position))
+                    .and_then(|account| {
+                        edit.input
+                            .to_account(account.custom_position)
+                            .map_err(AppError::from)
+                    })
                     .and_then(|mut edited_account| {
-                        let vault = self.vault.as_mut().ok_or("No Vault".to_string())?;
+                        let vault = self.vault.as_mut().ok_or(AppError::NoVault)?;
                         let index = vault
                             .accounts
                             .iter()
                             .position(|account| account.id == id)
-                            .ok_or("No Account".to_string())?;
+                            .ok_or(AppError::NoAccount)?;
                         let editable = &mut vault.accounts[index];
                         edited_account.id = editable.id;
                         edited_account.created_at = editable.created_at;
@@ -757,7 +771,8 @@ impl FactrApp {
                 match result {
                     Ok(()) => self.display.edit_display = None,
                     Err(error) => {
-                        self.display.edit_display.as_mut().unwrap().input.error = Some(error)
+                        self.display.edit_display.as_mut().unwrap().input.error =
+                            Some(error_messages::app_error(&error))
                     }
                 }
             }
@@ -810,7 +825,7 @@ impl FactrApp {
                     {
                         account.custom_position = position;
                     }
-                    self.error = Some(error);
+                    self.error = Some(error_messages::app_error(&error));
                 }
             }
             MainScreenAction::Delete(id) => {
@@ -825,13 +840,13 @@ impl FactrApp {
                 self.error = self
                     .vault
                     .as_mut()
-                    .ok_or("No Vault".to_string())
+                    .ok_or(AppError::NoVault)
                     .and_then(|vault| {
                         let idx = vault
                             .accounts
                             .iter()
                             .position(|account| account.id == id)
-                            .ok_or("No Account".to_string())?;
+                            .ok_or(AppError::NoAccount)?;
                         let removed = vault.accounts.remove(idx);
                         for account in &mut vault.accounts {
                             if account.custom_position > removed.custom_position {
@@ -841,7 +856,8 @@ impl FactrApp {
                         Ok(())
                     })
                     .and_then(|_| self.save_storage())
-                    .err();
+                    .err()
+                    .map(|error| error_messages::app_error(&error));
             }
             MainScreenAction::UpdateConfiguration => {
                 self.config.sort = self.display.sort;
@@ -866,9 +882,11 @@ impl FactrApp {
         }
     }
 
-    fn save_storage(&self) -> Result<(), String> {
-        let vault = self.vault.as_ref().ok_or("No Vault")?;
-        Storage::V2(ProtectedStorageV2::from_vault(vault)?).write(&self.config.storage_file)
+    fn save_storage(&self) -> Result<(), AppError> {
+        let vault = self.vault.as_ref().ok_or(AppError::NoVault)?;
+        Storage::V2(ProtectedStorageV2::from_vault(vault)?)
+            .write(&self.config.storage_file)
+            .map_err(AppError::from)
     }
 }
 

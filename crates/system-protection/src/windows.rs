@@ -1,3 +1,4 @@
+use crate::SystemProtectionError;
 use std::{
     collections::HashMap,
     sync::{Mutex, OnceLock},
@@ -41,8 +42,8 @@ struct Runtime;
 
 impl Runtime {
     /// Initializes WinRT on a protection worker thread.
-    fn new() -> Result<Self, String> {
-        unsafe { RoInitialize(RO_INIT_MULTITHREADED) }.map_err(|e| e.to_string())?;
+    fn new() -> Result<Self, SystemProtectionError> {
+        unsafe { RoInitialize(RO_INIT_MULTITHREADED) }.map_err(SystemProtectionError::platform)?;
         Ok(Self)
     }
 }
@@ -55,23 +56,23 @@ impl Drop for Runtime {
 }
 
 /// Checks Windows Hello availability on the current worker thread.
-pub fn check_availability() -> Result<bool, String> {
+pub fn check_availability() -> Result<bool, SystemProtectionError> {
     let _runtime = Runtime::new()?;
     KeyCredentialManager::IsSupportedAsync()
         .and_then(|operation| operation.join())
-        .map_err(|error| error.to_string())
+        .map_err(SystemProtectionError::platform)
 }
 
 /// Opens the Windows sign-in settings page.
-pub fn open_settings() -> Result<(), String> {
+pub fn open_settings() -> Result<(), SystemProtectionError> {
     let _runtime = Runtime::new()?;
-    let uri =
-        windows::Foundation::Uri::CreateUri(SIGN_IN_SETTINGS).map_err(|error| error.to_string())?;
+    let uri = windows::Foundation::Uri::CreateUri(SIGN_IN_SETTINGS)
+        .map_err(SystemProtectionError::platform)?;
     let opened = windows::System::Launcher::LaunchUriAsync(&uri)
         .and_then(|operation| operation.join())
-        .map_err(|error| error.to_string())?;
+        .map_err(SystemProtectionError::platform)?;
     if !opened {
-        return Err("Windows could not open sign-in settings".to_string());
+        return Err(SystemProtectionError::SettingsUnavailable);
     }
     Ok(())
 }
@@ -102,21 +103,28 @@ fn credential_name(id: Uuid) -> HSTRING {
 }
 
 /// Copies a saved envelope before releasing the native credential allocation.
-fn read_key(id: Uuid) -> Result<ProtectedKey, String> {
+fn read_key(id: Uuid) -> Result<ProtectedKey, SystemProtectionError> {
     let target = credential_name(id);
     let mut pointer = std::ptr::null_mut();
-    unsafe { CredReadW(&target, CRED_TYPE_GENERIC, None, &mut pointer) }
-        .map_err(|e| format!("System key is unavailable; use the recovery key: {e}"))?;
+    unsafe { CredReadW(&target, CRED_TYPE_GENERIC, None, &mut pointer) }.map_err(|error| {
+        if error.code()
+            == windows::core::HRESULT::from_win32(windows::Win32::Foundation::ERROR_NOT_FOUND.0)
+        {
+            SystemProtectionError::KeyMissing
+        } else {
+            SystemProtectionError::platform(error)
+        }
+    })?;
     let result = unsafe {
         let credential = &*pointer;
         if credential.CredentialBlob.is_null() || credential.CredentialBlobSize == 0 {
-            Err("Empty system key entry".to_string())
+            Err(SystemProtectionError::InvalidKey)
         } else {
             let bytes = std::slice::from_raw_parts(
                 credential.CredentialBlob,
                 credential.CredentialBlobSize as usize,
             );
-            serde_json::from_slice(bytes).map_err(|e| e.to_string())
+            serde_json::from_slice(bytes).map_err(SystemProtectionError::platform)
         }
     };
     unsafe { CredFree(pointer.cast()) };
@@ -124,25 +132,37 @@ fn read_key(id: Uuid) -> Result<ProtectedKey, String> {
 }
 
 /// Saves only the public challenge and encrypted vault key on this machine.
-fn write_key(id: Uuid, protected: &ProtectedKey) -> Result<(), String> {
+fn write_key(id: Uuid, protected: &ProtectedKey) -> Result<(), SystemProtectionError> {
     let target = credential_name(id);
-    let mut bytes = serde_json::to_vec(protected).map_err(|e| e.to_string())?;
+    let mut bytes = serde_json::to_vec(protected).map_err(SystemProtectionError::platform)?;
     let credential = CREDENTIALW {
         Type: CRED_TYPE_GENERIC,
         TargetName: PWSTR(target.as_ptr().cast_mut()),
         CredentialBlobSize: bytes
             .len()
             .try_into()
-            .map_err(|_| "System key entry is too large")?,
+            .map_err(|_| SystemProtectionError::InvalidKey)?,
         CredentialBlob: bytes.as_mut_ptr(),
         Persist: CRED_PERSIST_LOCAL_MACHINE,
         ..Default::default()
     };
-    unsafe { CredWriteW(&credential, 0) }.map_err(|e| e.to_string())
+    unsafe { CredWriteW(&credential, 0) }.map_err(SystemProtectionError::platform)
+}
+
+/// Classifies Windows Hello outcomes without parsing native error text.
+fn credential_error(status: KeyCredentialStatus) -> SystemProtectionError {
+    match status {
+        KeyCredentialStatus::UserCanceled => SystemProtectionError::AuthenticationCancelled,
+        KeyCredentialStatus::NotFound => SystemProtectionError::KeyMissing,
+        _ => SystemProtectionError::AuthenticationDenied,
+    }
 }
 
 /// Derives a wrapping key from a Windows Hello authorized signature.
-fn wrapping_key(challenge: &[u8], create: bool) -> Result<Zeroizing<[u8; KEY_LEN]>, String> {
+fn wrapping_key(
+    challenge: &[u8],
+    create: bool,
+) -> Result<Zeroizing<[u8; KEY_LEN]>, SystemProtectionError> {
     let _runtime = Runtime::new()?;
     let result = if create {
         KeyCredentialManager::RequestCreateAsync(
@@ -153,41 +173,40 @@ fn wrapping_key(challenge: &[u8], create: bool) -> Result<Zeroizing<[u8; KEY_LEN
         KeyCredentialManager::OpenAsync(HELLO_CREDENTIAL)
     }
     .and_then(|operation| operation.join())
-    .map_err(|e| e.to_string())?;
+    .map_err(SystemProtectionError::platform)?;
     let result = if create
-        && result.Status().map_err(|e| e.to_string())?
+        && result.Status().map_err(SystemProtectionError::platform)?
             == KeyCredentialStatus::CredentialAlreadyExists
     {
         KeyCredentialManager::OpenAsync(HELLO_CREDENTIAL)
             .and_then(|operation| operation.join())
-            .map_err(|e| e.to_string())?
+            .map_err(SystemProtectionError::platform)?
     } else {
         result
     };
-    let status = result.Status().map_err(|e| e.to_string())?;
+    let status = result.Status().map_err(SystemProtectionError::platform)?;
     if status != KeyCredentialStatus::Success {
-        return Err(format!(
-            "Windows Hello key is unavailable or authentication was cancelled ({status:?}); use the recovery key"
-        ));
+        return Err(credential_error(status));
     }
-    let credential = result.Credential().map_err(|e| e.to_string())?;
-    let buffer = CryptographicBuffer::CreateFromByteArray(challenge).map_err(|e| e.to_string())?;
+    let credential = result
+        .Credential()
+        .map_err(SystemProtectionError::platform)?;
+    let buffer = CryptographicBuffer::CreateFromByteArray(challenge)
+        .map_err(SystemProtectionError::platform)?;
     let signed = credential
         .RequestSignAsync(&buffer)
         .and_then(|operation| operation.join())
-        .map_err(|e| e.to_string())?;
-    let status = signed.Status().map_err(|e| e.to_string())?;
+        .map_err(SystemProtectionError::platform)?;
+    let status = signed.Status().map_err(SystemProtectionError::platform)?;
     if status != KeyCredentialStatus::Success {
-        return Err(format!(
-            "Windows Hello authentication failed or was cancelled ({status:?})"
-        ));
+        return Err(credential_error(status));
     }
     let mut signature = Array::new();
     CryptographicBuffer::CopyToByteArray(
-        &signed.Result().map_err(|e| e.to_string())?,
+        &signed.Result().map_err(SystemProtectionError::platform)?,
         &mut signature,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(SystemProtectionError::platform)?;
     let key = Sha256::new()
         .chain_update(WRAPPING_KEY_INFO)
         .chain_update(signature.as_slice())
@@ -197,7 +216,11 @@ fn wrapping_key(challenge: &[u8], create: bool) -> Result<Zeroizing<[u8; KEY_LEN
 }
 
 /// Creates a Hello-protected vault key and persists its encrypted envelope.
-pub fn protect(id: Uuid, key: &[u8; KEY_LEN], _reason: &str) -> Result<ProtectedVaultKey, String> {
+pub fn protect(
+    id: Uuid,
+    key: &[u8; KEY_LEN],
+    _reason: &str,
+) -> Result<ProtectedVaultKey, SystemProtectionError> {
     let challenge = vault::random_key();
     let wrapping_key = wrapping_key(&*challenge, true)?;
     let protected_key_id = Uuid::new_v4();
@@ -219,7 +242,7 @@ pub fn protect(id: Uuid, key: &[u8; KEY_LEN], _reason: &str) -> Result<Protected
     )?;
     local_keys()
         .lock()
-        .map_err(|e| e.to_string())?
+        .map_err(|_| SystemProtectionError::StateUnavailable)?
         .insert(protected_key.id, true);
     Ok(protected_key)
 }
@@ -229,19 +252,19 @@ pub fn unlock(
     id: Uuid,
     protected_key: &ProtectedVaultKey,
     _reason: &str,
-) -> Result<Zeroizing<[u8; KEY_LEN]>, String> {
+) -> Result<Zeroizing<[u8; KEY_LEN]>, SystemProtectionError> {
     if protected_key.provider != PROVIDER || protected_key.version != VERSION {
-        return Err("Unsupported system protected key".to_string());
+        return Err(SystemProtectionError::UnsupportedKey);
     }
     let entry = read_key(protected_key.id)?;
     if entry.vault_id != id || entry.wrapped_key_b64 != protected_key.wrapped_key_b64 {
-        return Err("System key does not match this vault".to_string());
+        return Err(SystemProtectionError::KeyMismatch);
     }
     let challenge = BASE64_STANDARD
         .decode(&entry.challenge)
-        .map_err(|e| e.to_string())?;
+        .map_err(SystemProtectionError::platform)?;
     if challenge.len() != KEY_LEN {
-        return Err("Invalid Windows Hello challenge".to_string());
+        return Err(SystemProtectionError::InvalidKey);
     }
     let wrapping_key = wrapping_key(&challenge, false)?;
     let bytes = vault::decrypt_bound(
@@ -253,10 +276,10 @@ pub fn unlock(
             &protected_key.provider,
             protected_key.version,
         ),
-    )
-    .map_err(|e| e.to_string())?;
+    )?;
     Ok(Zeroizing::new(
-        <[u8; KEY_LEN]>::try_from(bytes.as_slice()).map_err(|_| "Invalid vault key length")?,
+        <[u8; KEY_LEN]>::try_from(bytes.as_slice())
+            .map_err(|_| SystemProtectionError::InvalidKey)?,
     ))
 }
 

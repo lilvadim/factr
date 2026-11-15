@@ -1,3 +1,4 @@
+use crate::SystemProtectionError;
 use std::{collections::HashMap, fs, sync::OnceLock};
 
 use factr_core::vault::{self, KEY_LEN, ProtectedVaultKey};
@@ -24,32 +25,39 @@ const POLKIT_SUBJECT_NAME: &str = "name";
 const POLKIT_NO_CANCELLATION_ID: &str = "";
 
 /// Identifies the current machine and session user without exposing secrets.
-fn device_id() -> Result<&'static str, String> {
+fn device_id() -> Result<&'static str, SystemProtectionError> {
     static DEVICE: OnceLock<String> = OnceLock::new();
     if let Some(device) = DEVICE.get() {
         return Ok(device.as_str());
     }
-    let machine = fs::read_to_string("/etc/machine-id").map_err(|e| e.to_string())?;
+    let machine = fs::read_to_string("/etc/machine-id").map_err(SystemProtectionError::platform)?;
     if machine.trim().is_empty() {
-        return Err("Missing machine ID".to_string());
+        return Err(SystemProtectionError::DeviceIdentityUnavailable);
     }
-    let connection = Connection::session().map_err(|e| e.to_string())?;
-    let bus = zbus::blocking::fdo::DBusProxy::new(&connection).map_err(|e| e.to_string())?;
-    let name = connection.unique_name().ok_or("Missing session bus name")?;
+    let connection = Connection::session().map_err(SystemProtectionError::platform)?;
+    let bus = zbus::blocking::fdo::DBusProxy::new(&connection)
+        .map_err(SystemProtectionError::platform)?;
+    let name = connection
+        .unique_name()
+        .ok_or(SystemProtectionError::DeviceIdentityUnavailable)?;
     let user = bus
         .get_connection_unix_user(name.clone().into())
-        .map_err(|e| e.to_string())?;
+        .map_err(SystemProtectionError::platform)?;
     Ok(DEVICE
         .get_or_init(|| format!("{}:{user}", machine.trim()))
         .as_str())
 }
 
 /// Checks whether a D-Bus service is running or can be activated.
-fn service_available(connection: &Connection, service: &str) -> Result<bool, String> {
-    let bus = zbus::blocking::fdo::DBusProxy::new(connection).map_err(|error| error.to_string())?;
+fn service_available(
+    connection: &Connection,
+    service: &str,
+) -> Result<bool, SystemProtectionError> {
+    let bus =
+        zbus::blocking::fdo::DBusProxy::new(connection).map_err(SystemProtectionError::platform)?;
     if bus
         .list_names()
-        .map_err(|error| error.to_string())?
+        .map_err(SystemProtectionError::platform)?
         .iter()
         .any(|name| name.as_str() == service)
     {
@@ -57,31 +65,25 @@ fn service_available(connection: &Connection, service: &str) -> Result<bool, Str
     }
     Ok(bus
         .list_activatable_names()
-        .map_err(|error| error.to_string())?
+        .map_err(SystemProtectionError::platform)?
         .iter()
         .any(|name| name.as_str() == service))
 }
 
 /// Rechecks platform prerequisites without prompting or changing the keyring.
-pub fn check_availability() -> Result<bool, String> {
+pub fn check_availability() -> Result<bool, SystemProtectionError> {
     if !std::path::Path::new(POLICY_PATH).is_file() {
-        return Err(
-            "Factr's Polkit policy is missing. Install Factr from a DEB, RPM, or Arch package."
-                .to_string(),
-        );
+        return Err(SystemProtectionError::MissingPolicy);
     }
     device_id()?;
-    let session = Connection::session().map_err(|error| error.to_string())?;
+    let session = Connection::session().map_err(SystemProtectionError::platform)?;
     if !service_available(&session, SECRET_SERVICE)? {
-        return Err("Secret Service is unavailable. Configure GNOME Keyring or KWallet, then sign out and back in.".to_string());
+        return Err(SystemProtectionError::SecretServiceUnavailable);
     }
-    SecretService::connect(EncryptionType::Dh).map_err(|error| error.to_string())?;
-    let system = Connection::system().map_err(|error| error.to_string())?;
+    SecretService::connect(EncryptionType::Dh).map_err(SystemProtectionError::platform)?;
+    let system = Connection::system().map_err(SystemProtectionError::platform)?;
     if !service_available(&system, POLKIT_SERVICE)? {
-        return Err(
-            "Polkit is unavailable. Check your desktop's system authentication service."
-                .to_string(),
-        );
+        return Err(SystemProtectionError::PolkitUnavailable);
     }
     Ok(true)
 }
@@ -94,16 +96,18 @@ pub fn is_local(protected_key: &ProtectedVaultKey) -> bool {
 }
 
 /// Requests fresh authorization from the desktop's Polkit agent.
-fn authenticate() -> Result<(), String> {
-    let connection = Connection::system().map_err(|e| e.to_string())?;
+fn authenticate() -> Result<(), SystemProtectionError> {
+    let connection = Connection::system().map_err(SystemProtectionError::platform)?;
     let proxy = Proxy::new(
         &connection,
         POLKIT_SERVICE,
         POLKIT_AUTHORITY_PATH,
         POLKIT_AUTHORITY_INTERFACE,
     )
-    .map_err(|e| e.to_string())?;
-    let name = connection.unique_name().ok_or("Missing system bus name")?;
+    .map_err(SystemProtectionError::platform)?;
+    let name = connection
+        .unique_name()
+        .ok_or(SystemProtectionError::DeviceIdentityUnavailable)?;
     let subject = (
         POLKIT_SUBJECT_KIND,
         HashMap::from([(POLKIT_SUBJECT_NAME, Value::from(name.as_str()))]),
@@ -120,9 +124,9 @@ fn authenticate() -> Result<(), String> {
                 POLKIT_NO_CANCELLATION_ID,
             ),
         )
-        .map_err(|e| format!("System authentication failed: {e}"))?;
+        .map_err(SystemProtectionError::platform)?;
     if !authorized {
-        return Err("System authentication was denied or cancelled".to_string());
+        return Err(SystemProtectionError::AuthenticationDenied);
     }
     Ok(())
 }
@@ -137,7 +141,11 @@ fn attributes<'a>(vault: &'a str, entry: &'a str) -> HashMap<&'a str, &'a str> {
 }
 
 /// Encrypts a vault key with a random wrapping key held by Secret Service.
-pub fn protect(id: Uuid, key: &[u8; KEY_LEN], _reason: &str) -> Result<ProtectedVaultKey, String> {
+pub fn protect(
+    id: Uuid,
+    key: &[u8; KEY_LEN],
+    _reason: &str,
+) -> Result<ProtectedVaultKey, SystemProtectionError> {
     authenticate()?;
     let wrapping_key = vault::random_key();
     let protected_key_id = Uuid::new_v4();
@@ -149,15 +157,18 @@ pub fn protect(id: Uuid, key: &[u8; KEY_LEN], _reason: &str) -> Result<Protected
         metadata: serde_json::json!({"device": device_id()?}),
         wrapped_key_b64: vault::encrypt_bound(key, &wrapping_key, &context)?,
     };
-    let service = SecretService::connect(EncryptionType::Dh).map_err(|e| e.to_string())?;
+    let service =
+        SecretService::connect(EncryptionType::Dh).map_err(SystemProtectionError::platform)?;
     let collection = match service.get_default_collection() {
         Ok(collection) => collection,
         Err(secret_service::Error::NoResult) => service
             .create_collection("Factr", "default")
-            .map_err(|e| e.to_string())?,
-        Err(error) => return Err(error.to_string()),
+            .map_err(SystemProtectionError::platform)?,
+        Err(error) => return Err(SystemProtectionError::platform(error)),
     };
-    collection.unlock().map_err(|e| e.to_string())?;
+    collection
+        .unlock()
+        .map_err(SystemProtectionError::platform)?;
     collection
         .create_item(
             "Factr vault protection",
@@ -166,7 +177,7 @@ pub fn protect(id: Uuid, key: &[u8; KEY_LEN], _reason: &str) -> Result<Protected
             false,
             "application/octet-stream",
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(SystemProtectionError::platform)?;
     Ok(protected_key)
 }
 
@@ -175,24 +186,26 @@ pub fn unlock(
     id: Uuid,
     protected_key: &ProtectedVaultKey,
     _reason: &str,
-) -> Result<Zeroizing<[u8; KEY_LEN]>, String> {
+) -> Result<Zeroizing<[u8; KEY_LEN]>, SystemProtectionError> {
     if !is_local(protected_key) {
-        return Err("Unsupported or non-local system protected key".to_string());
+        return Err(SystemProtectionError::UnsupportedKey);
     }
     authenticate()?;
-    let service = SecretService::connect(EncryptionType::Dh).map_err(|e| e.to_string())?;
+    let service =
+        SecretService::connect(EncryptionType::Dh).map_err(SystemProtectionError::platform)?;
     let result = service
         .search_items(attributes(&id.to_string(), &protected_key.id.to_string()))
-        .map_err(|e| e.to_string())?;
+        .map_err(SystemProtectionError::platform)?;
     let item = result
         .unlocked
         .first()
         .or_else(|| result.locked.first())
-        .ok_or("System key is missing; use the recovery key")?;
-    item.unlock().map_err(|e| e.to_string())?;
-    let secret = Zeroizing::new(item.get_secret().map_err(|e| e.to_string())?);
+        .ok_or(SystemProtectionError::KeyMissing)?;
+    item.unlock().map_err(SystemProtectionError::platform)?;
+    let secret = Zeroizing::new(item.get_secret().map_err(SystemProtectionError::platform)?);
     let wrapping_key = Zeroizing::new(
-        <[u8; KEY_LEN]>::try_from(secret.as_slice()).map_err(|_| "Invalid system key length")?,
+        <[u8; KEY_LEN]>::try_from(secret.as_slice())
+            .map_err(|_| SystemProtectionError::InvalidKey)?,
     );
     let bytes = vault::decrypt_bound(
         &protected_key.wrapped_key_b64,
@@ -203,10 +216,10 @@ pub fn unlock(
             &protected_key.provider,
             protected_key.version,
         ),
-    )
-    .map_err(|e| e.to_string())?;
+    )?;
     Ok(Zeroizing::new(
-        <[u8; KEY_LEN]>::try_from(bytes.as_slice()).map_err(|_| "Invalid vault key length")?,
+        <[u8; KEY_LEN]>::try_from(bytes.as_slice())
+            .map_err(|_| SystemProtectionError::InvalidKey)?,
     ))
 }
 

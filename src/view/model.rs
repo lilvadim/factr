@@ -14,8 +14,8 @@ pub struct VaultDisplay {
 }
 
 impl VaultDisplay {
-    pub fn from_vault(vault: &Vault) -> Result<VaultDisplay, String> {
-        let accounts: Result<Vec<AccountDisplay>, String> = vault
+    pub fn from_vault(vault: &Vault) -> Result<VaultDisplay, vault::AccountError> {
+        let accounts: Result<Vec<AccountDisplay>, vault::AccountError> = vault
             .accounts
             .iter()
             .map(AccountDisplay::from_account)
@@ -37,7 +37,7 @@ pub struct AccountDisplay {
 }
 
 impl AccountDisplay {
-    pub fn from_account(account: &Account) -> Result<Self, String> {
+    pub fn from_account(account: &Account) -> Result<Self, vault::AccountError> {
         let (code, remaining_secs) = account.current_state()?;
         Ok(Self {
             id: account.id,
@@ -124,7 +124,7 @@ impl EditDisplay {
 }
 
 impl AccountFieldsDisplay {
-    pub fn to_account(&self, position: usize) -> Result<Account, String> {
+    pub fn to_account(&self, position: usize) -> Result<Account, vault::AccountError> {
         if self.method == AddMethod::OtpAuthUrl {
             return Account::from_otp_auth_url(&self.otp_auth_url, position);
         }

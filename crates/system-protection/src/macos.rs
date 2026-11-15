@@ -1,3 +1,4 @@
+use crate::SystemProtectionError;
 use std::{
     ffi::{CStr, c_char},
     sync::OnceLock,
@@ -38,6 +39,30 @@ impl Drop for Request<'_> {
     }
 }
 
+#[derive(Debug, Deserialize)]
+struct NativeError {
+    domain: String,
+    code: i64,
+    message: String,
+    cancelled: bool,
+}
+impl std::fmt::Display for NativeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "macOS system protection ({}:{}): {}",
+            self.domain, self.code, self.message
+        )
+    }
+}
+impl std::error::Error for NativeError {}
+
+#[derive(Deserialize)]
+struct Reply {
+    data: Option<String>,
+    error: Option<NativeError>,
+}
+
 /// Exchanges a serialized request and response with the native bridge.
 fn call(
     operation: &str,
@@ -45,12 +70,7 @@ fn call(
     secret: Option<&[u8]>,
     protected: Option<&str>,
     reason: &str,
-) -> Result<Zeroizing<Vec<u8>>, String> {
-    #[derive(Deserialize)]
-    struct Reply {
-        data: Option<String>,
-        error: Option<String>,
-    }
+) -> Result<Zeroizing<Vec<u8>>, SystemProtectionError> {
     let request = Request {
         operation,
         context: BASE64_STANDARD.encode(context),
@@ -58,47 +78,56 @@ fn call(
         protected_key: protected.map(str::to_owned),
         reason,
     };
-    let bytes = Zeroizing::new(serde_json::to_vec(&request).map_err(|e| e.to_string())?);
+    let bytes =
+        Zeroizing::new(serde_json::to_vec(&request).map_err(SystemProtectionError::platform)?);
     // The Swift bridge returns a malloc-owned, NUL-terminated JSON reply.
     // Copy it before asking the bridge to wipe and release its allocation.
     let pointer = unsafe { factr_system_protection(bytes.as_ptr(), bytes.len()) };
     if pointer.is_null() {
-        return Err("System protection returned no result".to_string());
+        return Err(SystemProtectionError::InvalidResponse);
     }
     let result = unsafe { Zeroizing::new(CStr::from_ptr(pointer).to_bytes().to_vec()) };
     unsafe {
         factr_system_protection_free(pointer);
     }
-    let reply: Reply = serde_json::from_slice(&result).map_err(|e| e.to_string())?;
+    let reply: Reply = serde_json::from_slice(&result).map_err(SystemProtectionError::platform)?;
     if let Some(error) = reply.error {
-        return Err(error);
+        return Err(if error.cancelled {
+            SystemProtectionError::AuthenticationCancelled
+        } else {
+            SystemProtectionError::platform(error)
+        });
     }
-    let data = Zeroizing::new(reply.data.ok_or("System protection returned no data")?);
+    let data = Zeroizing::new(reply.data.ok_or(SystemProtectionError::InvalidResponse)?);
     BASE64_STANDARD
         .decode(data.as_bytes())
         .map(Zeroizing::new)
-        .map_err(|e| e.to_string())
+        .map_err(SystemProtectionError::platform)
 }
 
 /// Rechecks system authentication and Secure Enclave without prompting.
-pub fn check_availability() -> Result<bool, String> {
+pub fn check_availability() -> Result<bool, SystemProtectionError> {
     call("available", &[], None, None, "").map(|_| true)
 }
 
 /// Returns the cached device identifier after checking protection availability.
-pub fn device_id() -> Result<String, String> {
+pub fn device_id() -> Result<String, SystemProtectionError> {
     static DEVICE: OnceLock<String> = OnceLock::new();
     if let Some(device) = DEVICE.get() {
         return Ok(device.clone());
     }
     let device = String::from_utf8(call("available", &[], None, None, "")?.to_vec())
-        .map_err(|e| e.to_string())?;
+        .map_err(SystemProtectionError::platform)?;
     let _ = DEVICE.set(device.clone());
     Ok(device)
 }
 
 /// Creates a device-bound protected key using Secure Enclave.
-pub fn protect(id: Uuid, key: &[u8; KEY_LEN], reason: &str) -> Result<ProtectedVaultKey, String> {
+pub fn protect(
+    id: Uuid,
+    key: &[u8; KEY_LEN],
+    reason: &str,
+) -> Result<ProtectedVaultKey, SystemProtectionError> {
     let device = device_id()?;
     let protected_key_id = Uuid::new_v4();
     let context = vault::encryption_context(id, protected_key_id, PROVIDER, VERSION);
@@ -118,9 +147,9 @@ pub fn unlock(
     id: Uuid,
     protected_key: &ProtectedVaultKey,
     reason: &str,
-) -> Result<Zeroizing<[u8; KEY_LEN]>, String> {
+) -> Result<Zeroizing<[u8; KEY_LEN]>, SystemProtectionError> {
     if protected_key.provider != PROVIDER || protected_key.version != VERSION {
-        return Err("Unsupported system protected key".to_string());
+        return Err(SystemProtectionError::UnsupportedKey);
     }
     let bytes = call(
         "unlock",
@@ -134,8 +163,8 @@ pub fn unlock(
         Some(&protected_key.wrapped_key_b64),
         reason,
     )?;
-    let key =
-        <[u8; KEY_LEN]>::try_from(bytes.as_slice()).map_err(|_| "Invalid system key length")?;
+    let key = <[u8; KEY_LEN]>::try_from(bytes.as_slice())
+        .map_err(|_| SystemProtectionError::InvalidKey)?;
     Ok(Zeroizing::new(key))
 }
 

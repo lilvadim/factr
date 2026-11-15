@@ -4,7 +4,7 @@ use factr_core::{recovery, vault::Vault};
 use factr_storage::Storage;
 use factr_system_protection as system_protection;
 
-use super::task::Task;
+use super::{error::AppError, error_messages, task::Task};
 use crate::view::{
     model::{
         system_protection::SystemProtectionDisplay,
@@ -16,7 +16,7 @@ use crate::view::{
 #[derive(Default)]
 pub(super) struct UnlockApp {
     display: UnlockDisplay,
-    task: Task<Vault>,
+    task: Task<Vault, AppError>,
 }
 
 impl UnlockApp {
@@ -86,7 +86,7 @@ impl UnlockApp {
                     return Some(vault);
                 }
                 Err(error) => {
-                    self.display.error = Some(error);
+                    self.display.error = Some(error_messages::task_error(error));
                     self.require_recovery();
                 }
             }
@@ -112,26 +112,26 @@ impl UnlockApp {
 }
 
 /// Unlocks a vault with its recovery key without modifying the file.
-pub(super) fn recovery_unlock(path: &Path, text: &str) -> Result<Vault, String> {
+pub(super) fn recovery_unlock(path: &Path, text: &str) -> Result<Vault, AppError> {
     let Storage::V2(storage) = Storage::read(path)? else {
-        return Err("Expected a V2 vault".to_string());
+        return Err(AppError::ExpectedV2);
     };
     let key = recovery::unlock(storage.id, &storage.protected_keys, text)?;
-    storage.decrypt(key).map_err(|error| error.to_string())
+    storage.decrypt(key).map_err(AppError::from)
 }
 
 /// Unlocks a vault through its local system protection.
-fn system_unlock(path: &Path, reason: &str) -> Result<Vault, String> {
+fn system_unlock(path: &Path, reason: &str) -> Result<Vault, AppError> {
     let Storage::V2(storage) = Storage::read(path)? else {
-        return Err("Expected a V2 vault".to_string());
+        return Err(AppError::ExpectedV2);
     };
     let protected_key = storage
         .protected_keys
         .iter()
         .find(|protected_key| system_protection::is_local(protected_key))
-        .ok_or("No system key for this device; use the recovery key")?;
+        .ok_or(AppError::MissingSystemKey)?;
     let key = system_protection::unlock(storage.id, protected_key, reason)?;
-    storage.decrypt(key).map_err(|e| e.to_string())
+    storage.decrypt(key).map_err(AppError::from)
 }
 
 #[cfg(test)]
@@ -181,8 +181,7 @@ mod tests {
         let mut app = UnlockApp::default();
         let ctx = egui::Context::default();
         let path = std::env::temp_dir().join(format!("factr-{}.json", uuid::Uuid::new_v4()));
-        app.task
-            .start(&ctx, || Err("system key unavailable".to_string()));
+        app.task.start(&ctx, || Err(AppError::MissingSystemKey));
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         while app.is_busy() {
             assert!(std::time::Instant::now() < deadline);
@@ -190,7 +189,10 @@ mod tests {
             std::thread::yield_now();
         }
         assert!(app.display.use_recovery_key);
-        assert_eq!(app.display.error.as_deref(), Some("system key unavailable"));
+        assert_eq!(
+            app.display.error.as_deref(),
+            Some(error_messages::app_error(&AppError::MissingSystemKey).as_str())
+        );
         assert!(!path.exists());
     }
 }

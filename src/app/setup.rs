@@ -1,10 +1,10 @@
 use std::path::Path;
 
 use factr_core::vault::Vault;
-use factr_storage::{InitializationError, PendingVault, Storage, migration::MigrationError};
+use factr_storage::{InitializationError, PendingVault, Storage};
 use factr_system_protection as system_protection;
 
-use super::task::Task;
+use super::{error::AppError, error_messages, task::Task};
 use crate::view::{
     model::{
         setup::{
@@ -19,7 +19,7 @@ use crate::view::{
 pub(super) struct SetupApp {
     display: SetupDisplay,
     pending: Option<PendingVault>,
-    task: Task<SetupTaskResult>,
+    task: Task<SetupTaskResult, AppError>,
 }
 
 pub(super) enum SetupResult {
@@ -29,8 +29,7 @@ pub(super) enum SetupResult {
 
 enum SetupTaskResult {
     ReadyToComplete(PendingVault),
-    SaveFailed(PendingVault, String),
-    Failed(InitializationError),
+    SaveFailed(PendingVault, InitializationError),
     Completed(Vault),
 }
 
@@ -100,7 +99,7 @@ impl SetupApp {
                         return Some(SetupResult::Unlocked(vault));
                     }
                 }
-                Err(error) => self.display.error = Some(error),
+                Err(error) => self.display.error = Some(error_messages::task_error(error)),
             }
         }
         if blocked || self.is_busy() {
@@ -120,12 +119,8 @@ impl SetupApp {
                 let path = path.to_owned();
                 let reason = rust_i18n::t!("access.system-reason").to_string();
                 self.task.start(ctx, move || {
-                    Ok(
-                        match start_vault_setup(&path, &password, use_system, &reason) {
-                            Ok(pending) => SetupTaskResult::ReadyToComplete(pending),
-                            Err(error) => SetupTaskResult::Failed(error),
-                        },
-                    )
+                    start_vault_setup(&path, &password, use_system, &reason)
+                        .map(SetupTaskResult::ReadyToComplete)
                 });
             }
             SetupAction::Complete => {
@@ -157,15 +152,7 @@ impl SetupApp {
             }
             SetupTaskResult::SaveFailed(pending, error) => {
                 self.pending = Some(pending);
-                self.display.error = Some(error);
-            }
-            SetupTaskResult::Failed(error) => {
-                self.display.error = Some(match error {
-                    InitializationError::Migration(MigrationError::Decrypt(_)) => {
-                        rust_i18n::t!("wrong-password").to_string()
-                    }
-                    error => error.to_string(),
-                })
+                self.display.error = Some(error_messages::initialization_error(&error));
             }
             SetupTaskResult::Completed(vault) => {
                 self.pending = None;
@@ -183,13 +170,17 @@ fn start_vault_setup(
     password: &str,
     use_system: bool,
     reason: &str,
-) -> Result<PendingVault, InitializationError> {
+) -> Result<PendingVault, AppError> {
     let mut pending = PendingVault::initialize(path, password)?;
     if use_system {
-        pending.vault.protected_keys.push(
-            system_protection::protect(pending.vault.id, &pending.vault.master_key, reason)
-                .map_err(InitializationError::Other)?,
-        );
+        pending
+            .vault
+            .protected_keys
+            .push(system_protection::protect(
+                pending.vault.id,
+                &pending.vault.master_key,
+                reason,
+            )?);
     }
     Ok(pending)
 }
@@ -248,7 +239,7 @@ mod tests {
         let pending = app.pending.take().unwrap();
         app.handle_result(SetupTaskResult::SaveFailed(
             pending,
-            "save failed".to_string(),
+            InitializationError::SourceChanged,
         ));
         let SetupScreen::ConfirmRecovery(confirmation) = &app.display.screen else {
             panic!("Expected retained confirmation");

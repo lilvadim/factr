@@ -4,6 +4,9 @@ use zeroize::Zeroizing;
 
 use factr_core::vault::{self, KEY_LEN, ProtectedVaultKey, Vault, VaultDecryptError};
 
+mod error;
+pub use error::StorageError;
+
 mod initialization;
 pub mod migration;
 
@@ -36,7 +39,7 @@ impl ProtectedStorageV2 {
             self.id.as_bytes(),
         )?;
         let accounts =
-            serde_json::from_slice(&bytes).map_err(|e| VaultDecryptError::Other(e.to_string()))?;
+            serde_json::from_slice(&bytes).map_err(VaultDecryptError::InvalidAccounts)?;
         Ok(Vault {
             master_key,
             id: self.id,
@@ -46,9 +49,9 @@ impl ProtectedStorageV2 {
     }
 
     /// Encrypts all account data while preserving protected vault keys.
-    pub fn from_vault(vault: &Vault) -> Result<Self, String> {
+    pub fn from_vault(vault: &Vault) -> Result<Self, StorageError> {
         let accounts =
-            Zeroizing::new(serde_json::to_vec(&vault.accounts).map_err(|e| e.to_string())?);
+            Zeroizing::new(serde_json::to_vec(&vault.accounts).map_err(StorageError::Serialize)?);
         Ok(Self {
             id: vault.id,
             protected_keys: vault.protected_keys.clone(),
@@ -56,26 +59,27 @@ impl ProtectedStorageV2 {
                 &accounts,
                 &vault.master_key,
                 vault.id.as_bytes(),
-            )?,
+            )
+            .map_err(StorageError::Encryption)?,
         })
     }
 }
 
 impl Storage {
     /// Reads a supported vault format from disk.
-    pub fn read(path: &std::path::Path) -> Result<Self, String> {
-        let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-        serde_json::from_slice(&bytes).map_err(|e| e.to_string())
+    pub fn read(path: &std::path::Path) -> Result<Self, StorageError> {
+        let bytes = std::fs::read(path).map_err(StorageError::Read)?;
+        serde_json::from_slice(&bytes).map_err(StorageError::Deserialize)
     }
 
     /// Atomically writes an encrypted vault without retaining a backup.
-    pub fn write(&self, path: &std::path::Path) -> Result<(), String> {
+    pub fn write(&self, path: &std::path::Path) -> Result<(), StorageError> {
         use std::io::Write;
 
         // Replace the actual vault when a user-configured path is a symlink;
         // replacing only the link would leave the old V1 target behind.
         let target = if path.exists() {
-            path.canonicalize().map_err(|e| e.to_string())?
+            path.canonicalize().map_err(StorageError::Write)?
         } else {
             path.to_owned()
         };
@@ -84,14 +88,15 @@ impl Storage {
             .parent()
             .filter(|p| !p.as_os_str().is_empty())
             .unwrap_or_else(|| std::path::Path::new("."));
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(parent).map_err(StorageError::Write)?;
         // Persist in the same directory: the old file survives until an atomic
         // replacement succeeds. No password-protected V1 backup is retained.
-        let mut file = tempfile::NamedTempFile::new_in(parent).map_err(|e| e.to_string())?;
-        let bytes = serde_json::to_vec(self).map_err(|e| e.to_string())?;
-        file.write_all(&bytes).map_err(|e| e.to_string())?;
-        file.as_file().sync_all().map_err(|e| e.to_string())?;
-        file.persist(path).map_err(|e| e.to_string())?;
+        let mut file = tempfile::NamedTempFile::new_in(parent).map_err(StorageError::Write)?;
+        let bytes = serde_json::to_vec(self).map_err(StorageError::Serialize)?;
+        file.write_all(&bytes).map_err(StorageError::Write)?;
+        file.as_file().sync_all().map_err(StorageError::Write)?;
+        file.persist(path)
+            .map_err(|e| StorageError::Write(e.error))?;
         Ok(())
     }
 }
@@ -100,6 +105,22 @@ impl Storage {
 mod tests {
     use super::*;
     use factr_core::{recovery, vault::Account};
+
+    #[test]
+    fn file_errors_preserve_their_cause_and_format_errors_remain_distinct() {
+        use std::error::Error;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("vault.json");
+        let missing = Storage::read(&path).unwrap_err();
+        assert!(
+            matches!(&missing, StorageError::Read(error) if error.kind() == std::io::ErrorKind::NotFound)
+        );
+        assert!(missing.source().is_some());
+        std::fs::write(&path, b"invalid json").unwrap();
+        let invalid = Storage::read(&path).unwrap_err();
+        assert!(matches!(&invalid, StorageError::Deserialize(_)));
+        assert!(invalid.source().is_some());
+    }
 
     #[test]
     fn storage_round_trip_preserves_accounts() {

@@ -1,3 +1,6 @@
+mod error;
+pub use error::SystemProtectionError;
+
 use factr_core::vault::{KEY_LEN, ProtectedVaultKey};
 use uuid::Uuid;
 use zeroize::Zeroizing;
@@ -15,7 +18,7 @@ pub fn available() -> bool {
 }
 
 /// Rechecks platform availability and preserves diagnostic errors.
-pub fn check_availability() -> Result<bool, String> {
+pub fn check_availability() -> Result<bool, SystemProtectionError> {
     #[cfg(target_os = "macos")]
     return macos::check_availability();
     #[cfg(target_os = "linux")]
@@ -28,7 +31,7 @@ pub fn check_availability() -> Result<bool, String> {
 
 #[cfg(target_os = "windows")]
 /// Opens platform settings for system authentication.
-pub fn open_settings() -> Result<(), String> {
+pub fn open_settings() -> Result<(), SystemProtectionError> {
     windows::open_settings()
 }
 
@@ -51,7 +54,11 @@ pub fn is_local(protected_key: &ProtectedVaultKey) -> bool {
 }
 
 /// Protects a vault key using the platform's storage and authentication services.
-pub fn protect(id: Uuid, key: &[u8; KEY_LEN], reason: &str) -> Result<ProtectedVaultKey, String> {
+pub fn protect(
+    id: Uuid,
+    key: &[u8; KEY_LEN],
+    reason: &str,
+) -> Result<ProtectedVaultKey, SystemProtectionError> {
     #[cfg(target_os = "macos")]
     return macos::protect(id, key, reason);
     #[cfg(target_os = "linux")]
@@ -61,7 +68,7 @@ pub fn protect(id: Uuid, key: &[u8; KEY_LEN], reason: &str) -> Result<ProtectedV
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {
         let _ = (id, key, reason);
-        Err("System protection is not implemented for this operating system".to_string())
+        Err(SystemProtectionError::UnsupportedPlatform)
     }
 }
 
@@ -70,7 +77,7 @@ pub fn unlock(
     id: Uuid,
     protected_key: &ProtectedVaultKey,
     reason: &str,
-) -> Result<Zeroizing<[u8; KEY_LEN]>, String> {
+) -> Result<Zeroizing<[u8; KEY_LEN]>, SystemProtectionError> {
     #[cfg(target_os = "macos")]
     return macos::unlock(id, protected_key, reason);
     #[cfg(target_os = "linux")]
@@ -80,6 +87,6 @@ pub fn unlock(
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {
         let _ = (id, protected_key, reason);
-        Err("This system protection provider is unavailable".to_string())
+        Err(SystemProtectionError::UnsupportedPlatform)
     }
 }

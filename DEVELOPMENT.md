@@ -64,6 +64,7 @@ cargo packager --release --formats nsis # Windows
 - The app depends on all three crates; storage and system protection depend on core.
 - The library crates have no egui dependency. Native code stays in system protection.
 - `FactrApp` coordinates the three workflows and owns shared protection status. The active setup or unlock module is stored in `VaultAccess`. Workflow handlers never receive `FactrApp`.
+- Crates return typed errors with English diagnostics. `src/app/error_messages.rs` maps them to localized UI messages; background tasks preserve error types.
 - Shared dependency versions are declared in the workspace `Cargo.toml`.
 - Vault protection and limitations: [SECURITY.md](SECURITY.md).
 - Platform setup: [system protection guide](user_guide/SYSTEM_PROTECTION_GUIDE.md).
