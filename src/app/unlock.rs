@@ -196,7 +196,15 @@ mod tests {
         }
         assert!(!app.display.use_recovery_key);
         assert!(!app.display.need_default_focus);
-        assert!(app.display.error.is_none());
+        assert_eq!(
+            app.display.error.as_deref(),
+            Some(
+                error_messages::system_protection_error(
+                    &SystemProtectionError::AuthenticationCancelled
+                )
+                .as_str()
+            )
+        );
         assert!(app.display.action.is_none());
         assert!(!path.exists());
     }
