@@ -8,6 +8,7 @@ delete: Delete
 edit: Edit
 save: Save
 copy: Copy
+export-secret-url: Export — Copy Secret as URL
 cancel: Cancel
 vault-locked: Vault is Locked
 enter-password: Enter Password
