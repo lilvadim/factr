@@ -2,13 +2,9 @@ use std::path::Path;
 
 use factr_core::{recovery, vault::Vault};
 use factr_storage::Storage;
-use factr_system_protection::{self as system_protection, SystemProtectionError};
+use factr_system_protection::{self as system_protection};
 
-use super::{
-    error::AppError,
-    error_messages,
-    task::{Task, TaskError},
-};
+use super::{error::AppError, error_messages, task::Task};
 use crate::view::{
     model::{
         system_protection::SystemProtectionDisplay,
@@ -90,14 +86,6 @@ impl UnlockApp {
                     return Some(vault);
                 }
                 Err(error) => {
-                    if !matches!(
-                        &error,
-                        TaskError::Operation(AppError::SystemProtection(
-                            SystemProtectionError::AuthenticationCancelled
-                        ))
-                    ) {
-                        self.require_recovery();
-                    }
                     self.display.error = Some(error_messages::task_error(error));
                 }
             }
@@ -147,6 +135,8 @@ fn system_unlock(path: &Path, reason: &str) -> Result<Vault, AppError> {
 
 #[cfg(test)]
 mod tests {
+    use factr_system_protection::SystemProtectionError;
+
     use super::*;
 
     #[test]
@@ -233,7 +223,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_unlock_offers_recovery_and_clears_busy_state() {
+    fn failed_unlock_keeps_the_selected_method_and_clears_busy_state() {
         let mut app = UnlockApp::default();
         let ctx = egui::Context::default();
         let path = std::env::temp_dir().join(format!("factr-{}.json", uuid::Uuid::new_v4()));
@@ -244,7 +234,7 @@ mod tests {
             assert!(app.update(&ctx, &path, false).is_none());
             std::thread::yield_now();
         }
-        assert!(app.display.use_recovery_key);
+        assert!(!app.display.use_recovery_key);
         assert_eq!(
             app.display.error.as_deref(),
             Some(error_messages::app_error(&AppError::MissingSystemKey).as_str())
