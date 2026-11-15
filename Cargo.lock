@@ -1636,7 +1636,7 @@ dependencies = [
 
 [[package]]
 name = "factr-auth"
-version = "2.0.3"
+version = "2.1.0"
 dependencies = [
  "chrono",
  "eframe",
@@ -1658,7 +1658,7 @@ dependencies = [
 
 [[package]]
 name = "factr-core"
-version = "2.0.3"
+version = "2.1.0"
 dependencies = [
  "aes-gcm",
  "base64",
@@ -1673,7 +1673,7 @@ dependencies = [
 
 [[package]]
 name = "factr-storage"
-version = "2.0.3"
+version = "2.1.0"
 dependencies = [
  "argon2",
  "factr-core",
@@ -1687,7 +1687,7 @@ dependencies = [
 
 [[package]]
 name = "factr-system-protection"
-version = "2.0.3"
+version = "2.1.0"
 dependencies = [
  "base64",
  "cc",
