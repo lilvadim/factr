@@ -71,6 +71,13 @@ add:
   restore-defaults: Вернуть стандартные значения
   add: Добавить
 settings:
+  auto-lock: Автоблокировка при бездействии
+  auto-lock-options:
+    disabled: Выключена
+    one-minute: 1 минута
+    five-minutes: 5 минут
+    fifteen-minutes: 15 минут
+    thirty-minutes: 30 минут
   close-after-copy: Закрыть после копирования
   always-on-top: Поверх всех окон
   wayland-unsupported: Не поддерживается на Wayland

@@ -6,7 +6,7 @@ use egui::ThemePreference;
 use totp_rs::Algorithm;
 use uuid::Uuid;
 
-use crate::config::{AccountSort, Config};
+use crate::config::{AccountSort, AutoLockTimeout, Config};
 use factr_core::vault::{self, Account, Vault};
 
 pub struct VaultDisplay {
@@ -53,6 +53,7 @@ impl AccountDisplay {
 }
 
 pub struct SettingsDisplay {
+    pub auto_lock: AutoLockTimeout,
     pub close_after_copy: bool,
     pub always_on_top: bool,
     pub toolbar_labels: bool,
@@ -62,6 +63,7 @@ pub struct SettingsDisplay {
 impl SettingsDisplay {
     pub fn from_config(config: &Config) -> Self {
         Self {
+            auto_lock: config.auto_lock,
             close_after_copy: config.close_after_copy,
             always_on_top: config.always_on_top,
             toolbar_labels: config.toolbar_labels,
@@ -117,7 +119,9 @@ impl EditDisplay {
                     digits: account.totp.digits().into(),
                     period: account.totp.step(),
                 }),
-                ..Default::default()
+                method: AddMethod::default(),
+                otp_auth_url: String::new(),
+                error: None,
             },
         }
     }
@@ -160,6 +164,14 @@ pub(crate) struct AccountFieldsDisplay {
     pub extra_input: bool,
     pub manual_extra: Option<ManualInputExtra>,
     pub error: Option<String>,
+}
+
+impl Drop for AccountFieldsDisplay {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+        self.otp_auth_url.zeroize();
+        self.manual.secret.zeroize();
+    }
 }
 
 #[derive(PartialEq, Eq, Default)]

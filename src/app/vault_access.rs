@@ -110,6 +110,7 @@ impl FactrApp {
         self.system_protection.vault_opened(&vault);
         self.access = VaultAccess::Unlock(UnlockApp::new(&self.system_protection.display));
         self.vault = Some(vault);
+        self.auto_lock.reset();
         self.display.need_default_focus = true;
     }
 }
@@ -150,6 +151,7 @@ mod tests {
             display: AppDisplay::default(),
             access: VaultAccess::default(),
             system_protection: SystemProtectionApp::default(),
+            auto_lock: Default::default(),
             vault: None,
             error: None,
         };

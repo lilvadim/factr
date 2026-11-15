@@ -71,6 +71,13 @@ add:
   restore-defaults: Restore Defaults
   add: Add
 settings:
+  auto-lock: Auto-lock after inactivity
+  auto-lock-options:
+    disabled: Disabled
+    one-minute: 1 minute
+    five-minutes: 5 minutes
+    fifteen-minutes: 15 minutes
+    thirty-minutes: 30 minutes
   close-after-copy: Close after Copy
   always-on-top: Always on Top
   wayland-unsupported: Not supported on Wayland
