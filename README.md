@@ -4,7 +4,7 @@
 
 # Factr.
 
-Desktop 2FA TOTP authenticator application.
+Opionated Desktop 2FA TOTP Authenticator Application.
 
 No registration, no servers, fully yours.
 
@@ -65,6 +65,7 @@ sudo pacman -U <DONWLOADED_PACKAGE>
 1. While sort is disabled, you can arrange codes as you want just dragging them!
 2. To search by relevance, disable sort after typing in search bar
 3. To transfer to other system just copy `~/.config/factr` directory and grab your recovery key
+4. There is no "batch export" feature for security reasons. But you can copy links one by one to do that. (IMO it is very easy to forget delete file with unencrypted secrets on device)
 
 ## Screenshots
 
