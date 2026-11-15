@@ -18,7 +18,6 @@ No background services, no menu bar widgets, just fast open then close utility.
 - Windows, Linux, macOS
 - written in Rust
 - easy backup and restore
-- **not vibecoded** but made with help of AI
 
 # Install
 
