@@ -11,7 +11,7 @@ default-members = ["."]
 resolver = "3"
 
 [workspace.package]
-version = "2.0.0"
+version = "2.0.1"
 
 [workspace.dependencies]
 factr-core = { path = "crates/core" }
@@ -34,6 +34,7 @@ zeroize = "1.9.1"
 product-name = "Factr"
 identifier = "factr-auth"
 icons = ["assets/icon/factr_icon.png"]
+resources = ["LICENSE", "THIRD_PARTY_NOTICES.txt"]
 category = "Utility"
 description = "Two-factor authenticator"
 long-description = """
