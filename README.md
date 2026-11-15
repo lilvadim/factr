@@ -10,6 +10,16 @@ No registration, no servers, fully yours.
 
 No background services, no menu bar widgets, just fast open then close utility.
 
+## Features
+
+- fast
+- minimal
+- secure
+- Windows, Linux, macOS
+- written in Rust
+- easy backup and restore
+- **not vibecoded** but made with help of AI
+
 # Install
 
 ## Homebrew (macOS 11+)
@@ -51,26 +61,31 @@ sudo dnf install <DOWNLOADED_PACKAGE>
 sudo pacman -U <DONWLOADED_PACKAGE>
 ```
 
-## Features
-
-- fast
-- minimal
-- secure
-- Windows, Linux, macOS
-- written in Rust
-- **not vibecoded**, but made with help of AI
-
 ## Tips
 
 1. While sort is disabled, you can arrange codes as you want just dragging them!
 2. To search by relevance, disable sort after typing in search bar
+3. To transfer to other system just copy `~/.config/factr` directory and grab your recovery key
 
 ## Screenshots
 
-![Screenshot](docs/screenshot.png)
-![Screenshot Locked](docs/screenshot_locked.png)
-![Screenshot All Windwos](docs/screenshot_all.png)
+![Main screen](docs/factr_screenshot_main.png)
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/factr_screenshot_search.png" alt="Account search" width="100%"></td>
+    <td width="50%"><img src="docs/factr_screenshot_sort.png" alt="Account sorting" width="100%"></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/factr_screenshot_unlock.png" alt="Vault unlock" width="100%"></td>
+    <td width="50%"><img src="docs/factr_screenshot_windows.png" alt="Application windows" width="100%"></td>
+  </tr>
+</table>
 
 See [SECURITY.md](SECURITY.md) for vault encryption, recovery, and system protection.
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for building, packaging, and project structure.
+
+## Credits
+
+Third-party licenses and required attribution notices: [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).
