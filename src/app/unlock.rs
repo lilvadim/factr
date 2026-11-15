@@ -2,9 +2,13 @@ use std::path::Path;
 
 use factr_core::{recovery, vault::Vault};
 use factr_storage::Storage;
-use factr_system_protection as system_protection;
+use factr_system_protection::{self as system_protection, SystemProtectionError};
 
-use super::{error::AppError, error_messages, task::Task};
+use super::{
+    error::AppError,
+    error_messages,
+    task::{Task, TaskError},
+};
 use crate::view::{
     model::{
         system_protection::SystemProtectionDisplay,
@@ -86,8 +90,15 @@ impl UnlockApp {
                     return Some(vault);
                 }
                 Err(error) => {
+                    if !matches!(
+                        &error,
+                        TaskError::Operation(AppError::SystemProtection(
+                            SystemProtectionError::AuthenticationCancelled
+                        ))
+                    ) {
+                        self.require_recovery();
+                    }
                     self.display.error = Some(error_messages::task_error(error));
-                    self.require_recovery();
                 }
             }
         }
@@ -174,6 +185,51 @@ mod tests {
         app.display.need_default_focus = false;
         app.protection_changed(&system);
         assert!(!app.display.need_default_focus);
+    }
+
+    #[test]
+    fn cancelled_system_unlock_keeps_the_selected_method() {
+        let mut app = UnlockApp::default();
+        let ctx = egui::Context::default();
+        let path = std::env::temp_dir().join(format!("factr-{}.json", uuid::Uuid::new_v4()));
+        app.display.need_default_focus = false;
+        app.task.start(&ctx, || {
+            Err(AppError::SystemProtection(
+                SystemProtectionError::AuthenticationCancelled,
+            ))
+        });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while app.is_busy() {
+            assert!(std::time::Instant::now() < deadline);
+            assert!(app.update(&ctx, &path, false).is_none());
+            std::thread::yield_now();
+        }
+        assert!(!app.display.use_recovery_key);
+        assert!(!app.display.need_default_focus);
+        assert!(app.display.error.is_none());
+        assert!(app.display.action.is_none());
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn denied_system_unlock_allows_retry_without_recovery() {
+        let mut app = UnlockApp::default();
+        let ctx = egui::Context::default();
+        let path = std::env::temp_dir().join(format!("factr-{}.json", uuid::Uuid::new_v4()));
+        app.task.start(&ctx, || {
+            Err(AppError::SystemProtection(
+                SystemProtectionError::AuthenticationDenied,
+            ))
+        });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while app.is_busy() {
+            assert!(std::time::Instant::now() < deadline);
+            assert!(app.update(&ctx, &path, false).is_none());
+            std::thread::yield_now();
+        }
+        assert!(!app.display.use_recovery_key);
+        assert!(app.display.error.is_some());
+        assert!(!path.exists());
     }
 
     #[test]

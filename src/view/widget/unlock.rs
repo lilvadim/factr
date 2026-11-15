@@ -30,25 +30,18 @@ impl Widget for UnlockForm<'_> {
                             ui.label(t!("access.system-restore-about"));
                             ui.strong(t!("access.restore-system-after-unlock"));
                         }
-                        let (can_unlock, label, next) = if display.use_recovery_key {
-                            (
-                                !display.recovery_key.is_empty(),
-                                t!("unlock-vault"),
-                                UnlockAction::Recovery,
-                            )
-                        } else {
-                            (
-                                system.system_protection_bound && system.available,
-                                t!("access.unlock-system"),
-                                UnlockAction::System,
-                            )
-                        };
-                        if ui
-                            .add_enabled(can_unlock, egui::Button::new(label).selected(true))
-                            .clicked()
-                            || (can_unlock && form_key(ui, egui::Key::Enter))
-                        {
-                            display.action = Some(next);
+                        if !display.use_recovery_key {
+                            let can_unlock = system.system_protection_bound && system.available;
+                            if ui
+                                .add_enabled(
+                                    can_unlock,
+                                    egui::Button::new(t!("access.unlock-system")).selected(true),
+                                )
+                                .clicked()
+                                || (can_unlock && form_key(ui, egui::Key::Enter))
+                            {
+                                display.action = Some(UnlockAction::System);
+                            }
                         }
                         if ui
                             .checkbox(&mut display.use_recovery_key, t!("access.use-recovery-key"))
@@ -66,6 +59,17 @@ impl Widget for UnlockForm<'_> {
                                 busy,
                                 "access.recovery-key",
                             );
+                            let can_unlock = !display.recovery_key.is_empty();
+                            if ui
+                                .add_enabled(
+                                    can_unlock,
+                                    egui::Button::new(t!("unlock-vault")).selected(true),
+                                )
+                                .clicked()
+                                || (can_unlock && form_key(ui, egui::Key::Enter))
+                            {
+                                display.action = Some(UnlockAction::Recovery);
+                            }
                         }
                     });
                     if busy {
