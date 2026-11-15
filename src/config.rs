@@ -8,6 +8,38 @@ const CONFIG_FILE: &str = "config.json";
 const STORAGE_FILE: &str = "storage.json";
 
 #[derive(Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AutoLockTimeout {
+    #[default]
+    Disabled,
+    OneMinute,
+    FiveMinutes,
+    FifteenMinutes,
+    ThirtyMinutes,
+}
+
+impl AutoLockTimeout {
+    pub const ALL: [Self; 5] = [
+        Self::Disabled,
+        Self::OneMinute,
+        Self::FiveMinutes,
+        Self::FifteenMinutes,
+        Self::ThirtyMinutes,
+    ];
+
+    /// Returns the configured inactivity interval.
+    pub fn duration(self) -> Option<std::time::Duration> {
+        let minutes = match self {
+            Self::Disabled => return None,
+            Self::OneMinute => 1,
+            Self::FiveMinutes => 5,
+            Self::FifteenMinutes => 15,
+            Self::ThirtyMinutes => 30,
+        };
+        Some(std::time::Duration::from_mins(minutes))
+    }
+}
+
+#[derive(Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AccountSort {
     pub enabled: bool,
@@ -33,6 +65,7 @@ pub struct Config {
     pub toolbar_labels: bool,
     pub theme: ThemePreference,
     pub sort: AccountSort,
+    pub auto_lock: AutoLockTimeout,
 }
 
 impl Default for Config {
@@ -44,6 +77,7 @@ impl Default for Config {
             toolbar_labels: true,
             theme: ThemePreference::System,
             sort: AccountSort::default(),
+            auto_lock: AutoLockTimeout::default(),
         }
     }
 }
@@ -81,4 +115,24 @@ fn env_home_dir() -> String {
     std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .expect("Cannot find home directory")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auto_lock_defaults_to_disabled_and_preserves_configured_intervals() {
+        let old_config: Config = serde_json::from_str("{}").unwrap();
+        assert!(old_config.auto_lock == AutoLockTimeout::Disabled);
+        for timeout in AutoLockTimeout::ALL {
+            let config = Config {
+                auto_lock: timeout,
+                ..Default::default()
+            };
+            let json = serde_json::to_string(&config).unwrap();
+            let restored: Config = serde_json::from_str(&json).unwrap();
+            assert!(restored.auto_lock == timeout);
+        }
+    }
 }

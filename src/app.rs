@@ -27,10 +27,11 @@ use egui::WindowLevel;
 use egui::{Color32, ComboBox, RichText, Stroke, TextEdit};
 use rust_i18n::t;
 
-use crate::config::Config;
+use crate::config::{AutoLockTimeout, Config};
 
 use factr_core::vault::Vault;
 
+mod auto_lock;
 mod error;
 mod error_messages;
 mod setup;
@@ -49,6 +50,7 @@ pub struct FactrApp {
     display: AppDisplay,
     access: VaultAccess,
     system_protection: SystemProtectionApp,
+    auto_lock: auto_lock::AutoLockTimer,
     vault: Option<Vault>,
     error: Option<String>,
 }
@@ -130,6 +132,7 @@ impl FactrApp {
         let mut app = Self {
             access: VaultAccess::default(),
             system_protection: SystemProtectionApp::default(),
+            auto_lock: auto_lock::AutoLockTimer::default(),
             vault: None,
             error: None,
             display: AppDisplay::default(),
@@ -145,13 +148,16 @@ impl FactrApp {
     }
 
     fn lock_vault(&mut self) -> Result<(), AppError> {
-        self.save_storage()?;
+        let saved = self.save_storage();
         let _ = self.vault.take();
         self.display.edit_display = None;
         self.display.add_display = None;
+        self.display.add_ui = false;
+        self.display.settings_ui = false;
+        self.display.settings_display = None;
         self.reset_access();
         self.display.need_default_focus = true;
-        Ok(())
+        saved
     }
 
     fn is_vault_unlocked(&self) -> bool {
@@ -160,6 +166,7 @@ impl FactrApp {
 
     fn ui(&mut self, ui: &mut Ui) {
         self.update_access(ui.ctx());
+        self.update_auto_lock(ui.ctx());
         let actions = self.display_main(ui);
         self.handle_actions(ui.ctx(), actions);
     }
@@ -312,6 +319,36 @@ impl FactrApp {
     fn display_settings(settings: &mut SettingsDisplay, ui: &mut Ui) -> Vec<MainScreenAction> {
         let mut actions = Vec::new();
         ui.vertical(|ui| {
+            ui.horizontal(|ui| {
+                ui.label(t!("settings.auto-lock"));
+                let timeout_text = |timeout: AutoLockTimeout| match timeout {
+                    AutoLockTimeout::Disabled => t!("settings.auto-lock-options.disabled"),
+                    AutoLockTimeout::OneMinute => t!("settings.auto-lock-options.one-minute"),
+                    AutoLockTimeout::FiveMinutes => t!("settings.auto-lock-options.five-minutes"),
+                    AutoLockTimeout::FifteenMinutes => {
+                        t!("settings.auto-lock-options.fifteen-minutes")
+                    }
+                    AutoLockTimeout::ThirtyMinutes => {
+                        t!("settings.auto-lock-options.thirty-minutes")
+                    }
+                };
+                ComboBox::from_id_salt("settings.auto-lock")
+                    .selected_text(timeout_text(settings.auto_lock))
+                    .show_ui(ui, |ui| {
+                        for timeout in AutoLockTimeout::ALL {
+                            if ui
+                                .selectable_value(
+                                    &mut settings.auto_lock,
+                                    timeout,
+                                    timeout_text(timeout),
+                                )
+                                .changed()
+                            {
+                                actions.push(MainScreenAction::UpdateConfiguration);
+                            }
+                        }
+                    });
+            });
             if ui
                 .checkbox(
                     &mut settings.close_after_copy,
@@ -629,6 +666,9 @@ impl FactrApp {
             });
         } else {
             self.display_access(ui);
+            if let Some(error) = &self.error {
+                Self::display_error(ui, error);
+            }
         }
         actions
     }
@@ -862,6 +902,9 @@ impl FactrApp {
             MainScreenAction::UpdateConfiguration => {
                 self.config.sort = self.display.sort;
                 if let Some(settings_display) = &self.display.settings_display {
+                    self.config.auto_lock = settings_display.auto_lock;
+                    self.auto_lock.reset();
+                    ctx.request_repaint();
                     self.config.close_after_copy = settings_display.close_after_copy;
                     self.config.always_on_top = settings_display.always_on_top;
                     self.config.toolbar_labels = settings_display.toolbar_labels;
