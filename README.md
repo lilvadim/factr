@@ -58,6 +58,7 @@ sudo pacman -U <DONWLOADED_PACKAGE>
 - secure
 - Windows, Linux, macOS
 - written in Rust
+- **not vibecoded**, but made with help of AI
 
 ## Tips
 
