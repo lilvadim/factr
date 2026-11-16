@@ -20,6 +20,9 @@ fn system_protection_setup_info(
     ui.label(t!("access.security-recovery-only"));
     ui.add_space(ui.spacing().item_spacing.y);
 
+    #[cfg(target_os = "linux")]
+    linux_security_warning(ui);
+
     if display.available {
         let color = if ui.visuals().dark_mode {
             Color32::LIGHT_GREEN
@@ -98,8 +101,6 @@ impl Widget for SystemProtectionSetupWizard<'_> {
         if let Some(error) = &display.error {
             ui.colored_label(ui.visuals().error_fg_color, error);
         }
-        #[cfg(target_os = "linux")]
-        linux_security_warning(ui);
         response
     }
 }
@@ -153,8 +154,6 @@ impl Widget for SystemProtectionControl<'_> {
         if let Some(error) = &display.error {
             ui.colored_label(ui.visuals().error_fg_color, error);
         }
-        #[cfg(target_os = "linux")]
-        linux_security_warning(ui);
         response
     }
 }
