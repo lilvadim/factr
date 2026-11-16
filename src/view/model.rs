@@ -142,14 +142,14 @@ impl AccountFieldsDisplay {
                 extra.algo,
                 extra.digits,
                 extra.period,
-                self.manual.secret.clone(),
+                &self.manual.secret,
                 position,
             )
         } else {
             Account::from_manual_with_defaults(
                 issuer,
                 self.manual.account_name.clone(),
-                self.manual.secret.clone(),
+                &self.manual.secret,
                 position,
             )
         }

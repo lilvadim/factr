@@ -9,6 +9,7 @@ use crate::app::FactrApp;
 
 mod app;
 mod config;
+mod instance;
 mod phosphor;
 mod view;
 
@@ -29,6 +30,14 @@ fn icon() -> egui::IconData {
 
 fn main() -> eframe::Result {
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
+    // Keep the lock outside the vault directory, which may be synchronized.
+    let lock_path = config::app_config_dir_path().with_extension("lock");
+    let Some(_instance) = instance::InstanceLock::acquire(&lock_path)
+        .map_err(|error| eframe::Error::AppCreation(Box::new(error)))?
+    else {
+        eprintln!("Factr is already running");
+        return Ok(());
+    };
     let config = config::read_from_dot_config()
         .inspect_err(|e| eprintln!("{}", e))
         .unwrap_or_default();
