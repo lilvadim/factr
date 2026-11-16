@@ -52,6 +52,8 @@ cargo packager --release --formats nsis # Windows
 | --------------------------- | ---------------------------------------------------------------- |
 | `src/`                      | Application, configuration, unlock orchestration                 |
 | `src/app.rs`, `src/app/`    | UI composition, action handlers, display updates                 |
+| `src/app/accounts.rs`      | Account changes, persistence, and rollback on save failure       |
+| `src/instance.rs`          | Per-user process lock held for the application lifetime          |
 | `src/app/{setup,unlock,system_protection}.rs` | Independent access workflows and background operations |
 | `src/app/vault_access.rs`, `src/app/task.rs` | Workflow coordination and typed background tasks |
 | `src/view/`                 | egui widgets and view models, grouped by workflow                |

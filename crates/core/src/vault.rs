@@ -6,7 +6,7 @@ use aes_gcm::{
 };
 use base64::prelude::*;
 use serde::{Deserialize, Serialize};
-use totp_rs::{Algorithm, Builder, Secret, Totp};
+use totp_rs::{Algorithm, Builder, Secret, Totp, TotpError};
 use zeroize::Zeroizing;
 
 const LEGACY_SECRET_LEN: usize = 10;
@@ -50,7 +50,7 @@ impl Account {
     pub fn from_manual_with_defaults(
         issuer: Option<String>,
         account_name: String,
-        secret: String,
+        secret: &str,
         position: usize,
     ) -> Result<Self, AccountError> {
         Self::from_manual(
@@ -70,10 +70,10 @@ impl Account {
         algo: Algorithm,
         digits: usize,
         period: u64,
-        secret_b32: String,
+        secret_b32: &str,
         position: usize,
     ) -> Result<Self, AccountError> {
-        let secret = Secret::try_from_base32(&secret_b32).map_err(AccountError::InvalidSecret)?;
+        let secret = Secret::try_from_base32(secret_b32).map_err(AccountError::InvalidSecret)?;
         let totp = init_totp(
             issuer,
             account_name,
@@ -142,8 +142,9 @@ pub fn init_totp(
     period: u64,
     secret: Vec<u8>,
 ) -> Result<Totp, AccountError> {
+    let secret = Secret::from(secret);
     let digits = u8::try_from(digits).map_err(|_| AccountError::InvalidDigits)?;
-    let short_secret = secret.len() == LEGACY_SECRET_LEN;
+    let short_secret = secret.as_bytes().len() == LEGACY_SECRET_LEN;
     let builder = Builder::new()
         .with_algorithm(algo)
         .with_digits(digits)
@@ -153,8 +154,17 @@ pub fn init_totp(
         .with_issuer(issuer)
         .with_account_name(account_name);
     let totp = if short_secret {
-        // Google Authenticator Compatibility
-        builder.build_noncompliant()
+        // Relax only secret length; the zeroizing clone validates other fields.
+        match builder.clone().build() {
+            Err(TotpError::SecretTooShort { .. }) => {
+                // The builder checks the period after secret length.
+                if period == 0 {
+                    return Err(AccountError::InvalidParameters(TotpError::InvalidStepZero));
+                }
+                builder.build_noncompliant()
+            }
+            result => result.map_err(AccountError::InvalidParameters)?,
+        }
     } else {
         builder.build().map_err(AccountError::InvalidParameters)?
     };
@@ -252,7 +262,7 @@ mod tests {
         let manual = Account::from_manual_with_defaults(
             Some("Issuer".to_string()),
             "user".to_string(),
-            secret.to_string(),
+            secret,
             0,
         )
         .unwrap();
@@ -263,13 +273,36 @@ mod tests {
         .unwrap();
         assert_eq!(manual.totp, url.totp);
         assert!(
-            Account::from_manual_with_defaults(
-                None,
-                "user".to_string(),
-                "JBSWY3DPEHPK3PXP".to_string(),
-                0,
-            )
-            .is_ok()
+            Account::from_manual_with_defaults(None, "user".to_string(), "JBSWY3DPEHPK3PXP", 0,)
+                .is_ok()
         );
+    }
+
+    #[test]
+    fn legacy_secrets_still_require_valid_totp_parameters() {
+        let secret = "JBSWY3DPEHPK3PXP";
+        let account = Account::from_manual_with_defaults(None, "user".into(), secret, 0).unwrap();
+        assert_eq!(account.totp.generate(59).to_string().len(), DEFAULT_DIGITS);
+        for (digits, period, issuer, name) in [
+            (5, 30, None, "user"),
+            (10, 30, None, "user"),
+            (256, 30, None, "user"),
+            (6, 0, None, "user"),
+            (6, 30, Some("invalid:issuer"), "user"),
+            (6, 30, None, "invalid:user"),
+        ] {
+            assert!(
+                Account::from_manual(
+                    issuer.map(str::to_owned),
+                    name.into(),
+                    DEFAULT_ALGO,
+                    digits,
+                    period,
+                    secret,
+                    0,
+                )
+                .is_err()
+            );
+        }
     }
 }

@@ -151,7 +151,7 @@ mod tests {
             let account = Account::from_manual_with_defaults(
                 None,
                 "test".into(),
-                "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ".into(),
+                "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
                 0,
             )
             .unwrap();

@@ -31,6 +31,7 @@ use crate::config::{AutoLockTimeout, Config};
 
 use factr_core::vault::{AccountError, Vault};
 
+mod accounts;
 mod auto_lock;
 mod error;
 mod error_messages;
@@ -733,26 +734,27 @@ impl FactrApp {
                     .map(|error| error_messages::app_error(&error));
             }
             MainScreenAction::Add => {
-                let display = self.display.add_display.as_mut().expect("No Add Input");
+                let display = self.display.add_display.as_ref().expect("No Add Input");
                 let result = self
                     .vault
-                    .as_mut()
+                    .as_ref()
                     .ok_or(AppError::NoVault)
                     .and_then(|vault| {
-                        let account = display.to_account(vault.accounts.len())?;
-                        vault.accounts.push(account);
-                        Ok(())
-                    });
-
-                if result.is_ok() {
-                    self.error = self
-                        .save_storage()
-                        .err()
-                        .map(|error| error_messages::app_error(&error));
-                    self.display.add_ui = false;
-                    self.display.add_display = None;
-                } else {
-                    display.error = result.err().map(|error| error_messages::app_error(&error));
+                        display
+                            .to_account(vault.accounts.len())
+                            .map_err(AppError::from)
+                    })
+                    .and_then(|account| self.add_account(account));
+                match result {
+                    Ok(()) => {
+                        self.display.add_ui = false;
+                        self.display.add_display = None;
+                        self.error = None;
+                    }
+                    Err(error) => {
+                        self.display.add_display.as_mut().unwrap().error =
+                            Some(error_messages::app_error(&error));
+                    }
                 }
             }
             MainScreenAction::CancelAdd => {
@@ -813,28 +815,7 @@ impl FactrApp {
                             .to_account(account.custom_position)
                             .map_err(AppError::from)
                     })
-                    .and_then(|mut edited_account| {
-                        let vault = self.vault.as_mut().ok_or(AppError::NoVault)?;
-                        let index = vault
-                            .accounts
-                            .iter()
-                            .position(|account| account.id == id)
-                            .ok_or(AppError::NoAccount)?;
-                        let editable = &mut vault.accounts[index];
-                        edited_account.id = editable.id;
-                        edited_account.created_at = editable.created_at;
-                        edited_account.modified_at = if edited_account.totp == editable.totp {
-                            editable.modified_at
-                        } else {
-                            chrono::Utc::now().timestamp_millis()
-                        };
-                        let old = std::mem::replace(editable, edited_account);
-                        if let Err(error) = self.save_storage() {
-                            self.vault.as_mut().unwrap().accounts[index] = old;
-                            return Err(error);
-                        }
-                        Ok(())
-                    });
+                    .and_then(|account| self.replace_account(id, account));
                 match result {
                     Ok(()) => self.display.edit_display = None,
                     Err(error) => {
@@ -850,82 +831,25 @@ impl FactrApp {
                 if move_unavailable {
                     return;
                 }
-                let Some(vault) = &mut self.vault else {
-                    return;
-                };
-                let original_layout_positions: Vec<_> =
-                    vault.accounts.iter().map(|a| a.custom_position).collect();
-                let Some(from) = vault
-                    .accounts
-                    .iter()
-                    .find(|account| account.id == source)
-                    .map(|account| account.custom_position)
-                else {
-                    return;
-                };
-                let Some(to) = vault
-                    .accounts
-                    .iter()
-                    .find(|account| account.id == target)
-                    .map(|account| account.custom_position)
-                else {
-                    return;
-                };
-                for account in &mut vault.accounts {
-                    let position = account.custom_position;
-                    if position == from {
-                        account.custom_position = to;
-                    } else if from < to && position > from && position <= to {
-                        account.custom_position -= 1;
-                    } else if from > to && position >= to && position < from {
-                        account.custom_position += 1;
-                    }
-                }
-                if let Err(error) = self.save_storage() {
-                    for (account, position) in self
-                        .vault
-                        .as_mut()
-                        .unwrap()
-                        .accounts
-                        .iter_mut()
-                        .zip(original_layout_positions)
-                    {
-                        account.custom_position = position;
-                    }
-                    self.error = Some(error_messages::app_error(&error));
-                }
-            }
-            MainScreenAction::Delete(id) => {
-                if self
-                    .display
-                    .edit_display
-                    .as_ref()
-                    .is_some_and(|edit| edit.id == id)
-                {
-                    self.display.edit_display = None;
-                }
                 self.error = self
-                    .vault
-                    .as_mut()
-                    .ok_or(AppError::NoVault)
-                    .and_then(|vault| {
-                        let idx = vault
-                            .accounts
-                            .iter()
-                            .position(|account| account.id == id)
-                            .ok_or(AppError::NoAccount)?;
-                        let removed = vault.accounts.remove(idx);
-                        for account in &mut vault.accounts {
-                            if account.custom_position > removed.custom_position {
-                                account.custom_position -= 1;
-                            }
-                        }
-                        Ok(())
-                    })
-                    .and_then(|_| self.save_storage())
+                    .move_account(source, target)
                     .err()
                     .map(|error| error_messages::app_error(&error));
             }
+            MainScreenAction::Delete(id) => match self.delete_account(id) {
+                Ok(()) => {
+                    if self
+                        .display
+                        .edit_display
+                        .as_ref()
+                        .is_some_and(|edit| edit.id == id)
+                    {
+                        self.display.edit_display = None;
+                    }
+                    self.error = None;
+                }
+                Err(error) => self.error = Some(error_messages::app_error(&error)),
+            },
             MainScreenAction::UpdateConfiguration => {
                 self.config.sort = self.display.sort;
                 if let Some(settings_display) = &self.display.settings_display {
