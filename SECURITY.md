@@ -17,4 +17,6 @@
 
 - On Linux, another unsandboxed process running as the same user may read the wrapping key from an unlocked Secret Service without Polkit confirmation.
 - An unlocked app holds decrypted secrets in memory; system protection cannot guarantee safety on a compromised computer.
+- Locking releases the decrypted vault and clears Add/Edit forms. Zeroizing buffers are wiped when released, but temporary copies in GUI, native code, or pending operations may remain.
+- Exported OTP URLs contain account secrets. Locking does not clear the system clipboard or its history.
 - The vault file and recovery key together allow access without system authentication.

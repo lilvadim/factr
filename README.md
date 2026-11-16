@@ -4,11 +4,11 @@
 
 # Factr.
 
-Opionated Desktop 2FA TOTP Authenticator Application.
+Opinionated Desktop 2FA TOTP Authenticator Application.
 
 No registration, no servers, fully yours.
 
-No background services, no menu bar widgets, just fast open then close utility.
+No background services, no menu bar widgets, just a fast open then close utility.
 
 ## Features
 
@@ -40,24 +40,26 @@ brew install --cask factr
 
 #### Ubuntu/Debian Based (DEB)
 
-Use this command to install downloaded package file:
+Use this command to install the downloaded package file:
 
 ```sh
-sudo apt install <DOWNLOADED_PACKAGE>
+sudo apt install ./Factr_*_linux-*.deb # Use downloaded package name
 ```
 
 #### Fedora (RPM)
 
-Use this command to install downloaded package file:
+Use this command to install the downloaded package file:
 
 ```sh
-sudo dnf install <DOWNLOADED_PACKAGE>
+sudo dnf install ./Factr_*_linux-*.rpm # Use downloaded package name
 ```
 
 #### Arch Based
 
+Use this command to install the downloaded package file:
+
 ```sh
-sudo pacman -U <DONWLOADED_PACKAGE>
+sudo pacman -U ./Factr_*_linux-*.pkg.tar.zst # Use downloaded package name
 ```
 
 ## Screenshots
@@ -77,19 +79,19 @@ sudo pacman -U <DONWLOADED_PACKAGE>
 
 ## Overview
 
-I did not found any decent open source minimal desktop authenticator app, so decided to make my own.
+I did not find any decent open source minimal desktop authenticator app, so I decided to make my own.
 
-**It is not one day vibecoding session**, I am the 4+ years backend developer and had experience with building desktop apps "before AI age".
+**It is not a one-day vibecoding session**. I am a backend developer with 4+ years of experience and had experience with building desktop apps "before the AI age".
 
-**Factr is small utility without any clouds or servers, without any background tray items**, oriented on just open, unlock, grab the code, then close usage. But I added autolock timeout so you can keep it opened safely.
+**Factr is a small utility without any clouds or servers, without any background tray items**, meant for “open, unlock, grab the code, then close” usage. An optional autolock timeout is available for longer sessions.
 
-Works really simple, app uses just `~/.config/factr` with `config.json` for settings and `storage.json` for securely encrypted vault.
-Sensitive data exists only when vault is unlocked, otherwise in memory it fully cleans up or on disk it is fully encrypted.
+It’s really simple: the app uses just `~/.config/factr` with `config.json` for settings and `storage.json` for a securely encrypted vault.
+Sensitive data is present in memory while the vault is unlocked. On locking, it is cleared from memory where possible. On disk, account data is encrypted.
 
-It uses OS-native security mechanisms so there is no need to setup new password for this, and it is practically the only method to secure data locally without huge password to remember.
-But you need to **save somewhere recovery key** as fallback option or for transfer vault to other system.
+It uses OS-native security mechanisms so there is no need to set up a new password for this, and it is practically the only method to secure data locally without a huge password to remember.
+But you need to **save the recovery key somewhere** as a fallback option or for transferring the vault to another system.
 
-Transfer feature is already built in, just copy the `~/.config/factr` directory and app will instruct you with recovery and setup system protection on new system.
+The transfer feature is already built in: just copy the `~/.config/factr` directory and the app will guide you through recovery and setting up system protection on the new system.
 
 See [SECURITY.md](SECURITY.md) for vault encryption, recovery, and system protection.
 
@@ -97,11 +99,11 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for building, packaging, and project struct
 
 ## Tips
 
-1. While sort is disabled, you can arrange codes as you want just dragging them!
-2. To search by relevance, disable sort after typing in search bar
-3. To transfer to other system just copy `~/.config/factr` directory and grab your recovery key
-4. You can make app close automatically after copying the code in settings
-5. There is no "batch export" feature for security reasons. But you can copy links one by one to do that. (IMO it is very easy to forget delete file with unencrypted secrets on device)
+1. While sort is disabled, you can arrange codes as you want just by dragging them!
+2. To search by relevance, disable sort after typing in the search bar
+3. To transfer to another system, just copy the `~/.config/factr` directory and grab your recovery key
+4. You can make the app close automatically after copying the code in settings
+5. There is no "batch export" feature for security reasons. But you can copy links one by one to do that. (IMO it is very easy to forget to delete a file with unencrypted secrets on the device)
 
 ## Credits
 
