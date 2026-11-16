@@ -193,11 +193,6 @@ jobs:
           pattern: Factr_*
           path: release-assets
           merge-multiple: true
-      - name: Generate Checksums
-        working-directory: release-assets
-        run: |
-          sha256sum -- * > ../SHA256SUMS
-          mv ../SHA256SUMS .
       - name: Create Draft Release
         run: |
           gh release create "$RELEASE_TAG" release-assets/* \
