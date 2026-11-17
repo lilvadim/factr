@@ -87,7 +87,7 @@ pkaction --action-id com.factr.unlock
 - No confirmation prompt: check that your session runs a Polkit authentication agent.
 - **Check again** checks prerequisites. Enabling protection also tests authorization and key storage.
 
-**Linux limitation:** other apps running as your user may read the stored key without Factr’s confirmation prompt. See [SECURITY.md](../SECURITY.md).
+**Linux limitation:** other apps running as your user may read the stored key without Factr’s confirmation prompt. See [SECURITY.md](../docs/SECURITY.md).
 
 ## macOS
 

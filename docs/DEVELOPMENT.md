@@ -5,7 +5,7 @@
 - Rust stable and Cargo; run commands from the repository root.
 - macOS: Xcode Command Line Tools, including Swift.
 - Windows: MSVC toolchain and Windows SDK.
-- Linux: native build dependencies listed in [the packaging workflow](.github/workflows/bundle.yml); system unlock also needs [platform services and the Polkit policy](crates/system-protection/README.md).
+- Linux: native build dependencies listed in [the packaging workflow](../.github/workflows/bundle.yml); system unlock also needs [platform services and the Polkit policy](../crates/system-protection/README.md).
 
 ## Build and run
 
@@ -44,7 +44,7 @@ cargo packager --release --formats nsis # Windows
 
 - Builds the release binary and creates DEB, RPM, and Arch (`.pkg.tar.zst`) files with the Polkit policy in `target/packages/`.
 - Version and architecture are detected automatically; configuration: `packaging/linux/nfpm.yaml`.
-- [Release workflow](.github/workflows/bundle.yml): manual platform selection, packaging, and optional draft release. Uses the same Linux script.
+- [Release workflow](../.github/workflows/bundle.yml): manual platform selection, packaging, and optional draft release. Uses the same Linux script.
 
 ## Structure and architecture
 
@@ -69,4 +69,4 @@ cargo packager --release --formats nsis # Windows
 - Crates return typed errors with English diagnostics. `src/app/error_messages.rs` maps them to localized UI messages; background tasks preserve error types.
 - Shared dependency versions are declared in the workspace `Cargo.toml`.
 - Vault protection and limitations: [SECURITY.md](SECURITY.md).
-- Platform setup: [system protection guide](user_guide/SYSTEM_PROTECTION_GUIDE.md).
+- Platform setup: [system protection guide](../user_guide/SYSTEM_PROTECTION_GUIDE.md).

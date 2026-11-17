@@ -64,16 +64,16 @@ sudo pacman -U ./Factr_*_linux-*.pkg.tar.zst # Use downloaded package name
 
 ## Screenshots
 
-![Main screen](docs/factr_screenshot_main.png)
+![Main screen](docs/screenshots/factr_screenshot_main.png)
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/factr_screenshot_search.png" alt="Account search" width="100%"></td>
-    <td width="50%"><img src="docs/factr_screenshot_sort.png" alt="Account sorting" width="100%"></td>
+    <td width="50%"><img src="docs/screenshots/factr_screenshot_search.png" alt="Account search" width="100%"></td>
+    <td width="50%"><img src="docs/screenshots/factr_screenshot_sort.png" alt="Account sorting" width="100%"></td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/factr_screenshot_unlock.png" alt="Vault unlock" width="100%"></td>
-    <td width="50%"><img src="docs/factr_screenshot_windows.png" alt="Application windows" width="100%"></td>
+    <td width="50%"><img src="docs/screenshots/factr_screenshot_unlock.png" alt="Vault unlock" width="100%"></td>
+    <td width="50%"><img src="docs/screenshots/factr_screenshot_windows.png" alt="Application windows" width="100%"></td>
   </tr>
 </table>
 
@@ -93,9 +93,9 @@ But you need to **save the recovery key somewhere** as a fallback option or for 
 
 The transfer feature is already built in: just copy the `~/.config/factr` directory and the app will guide you through recovery and setting up system protection on the new system.
 
-See [SECURITY.md](SECURITY.md) for vault encryption, recovery, and system protection.
+See [SECURITY.md](docs/SECURITY.md) for vault encryption, recovery, and system protection.
 
-See [DEVELOPMENT.md](DEVELOPMENT.md) for building, packaging, and project structure.
+See [DEVELOPMENT.md](docs/DEVELOPMENT.md) for building, packaging, and project structure.
 
 ## Tips
 

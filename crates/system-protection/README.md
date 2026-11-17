@@ -2,7 +2,7 @@
 
 - OS-backed vault key protection; depends on `factr-core`, independent of egui.
 - Authentication runs on the application's worker thread.
-- Security guarantees and limitations: [SECURITY.md](../../SECURITY.md).
+- Security guarantees and limitations: [SECURITY.md](../../docs/SECURITY.md).
 
 ## macOS
 
