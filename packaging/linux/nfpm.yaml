@@ -4,7 +4,7 @@ platform: linux
 version: ${PACKAGE_VERSION}
 maintainer: Vadim Mostovoy <vadimmos2002@gmail.com>
 description: Desktop two-factor TOTP authenticator
-homepage: https://github.com/lilvadim/factr
+homepage: https://github.com/vadimware/factr
 license: BSD-3-Clause
 section: utils
 priority: optional

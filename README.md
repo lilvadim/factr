@@ -39,7 +39,7 @@ No background services, no menu bar widgets, just a fast open then close utility
 ### Homebrew (macOS 11+)
 
 ```sh
-brew tap lilvadim/tap
+brew tap vadimware/tap
 brew install --cask factr
 ```
 
@@ -51,7 +51,7 @@ brew install --cask factr
 - Windows: 10/11 x64/ARM64
 - Linux 64-bit: amd64/arm64 glibc 2.35+ (Ubuntu 22.04+, Debian 12+)
 
-[Download from Releases Page](https://github.com/lilvadim/factr/releases/latest)
+[Download from Releases Page](https://github.com/vadimware/factr/releases/latest)
 
 #### Ubuntu/Debian Based (DEB)
 

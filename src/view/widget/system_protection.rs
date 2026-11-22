@@ -3,7 +3,7 @@ use egui::{Color32, Response, Ui, Widget};
 use rust_i18n::t;
 
 const SYSTEM_PROTECTION_GUIDE: &str =
-    "https://github.com/lilvadim/factr/blob/main/user_guide/SYSTEM_PROTECTION_GUIDE.md";
+    "https://github.com/vadimware/factr/blob/main/user_guide/SYSTEM_PROTECTION_GUIDE.md";
 
 /// Explains the two unlock methods and offers platform setup and a fresh check.
 fn system_protection_setup_info(

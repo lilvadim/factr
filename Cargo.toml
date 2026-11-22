@@ -3,7 +3,7 @@ name = "factr-auth"
 version.workspace = true
 edition = "2024"
 description = "TOTP authenticator app"
-repository = "https://github.com/lilvadim/factr"
+repository = "https://github.com/vadimware/factr"
 
 [workspace]
 members = ["crates/core", "crates/storage", "crates/system-protection"]
@@ -41,7 +41,7 @@ long-description = """
 Generate time-based one-time passwords (TOTP) for your accounts.
 Secrets are stored locally in a password-protected encrypted vault.
 """
-homepage = "https://github.com/lilvadim/factr"
+homepage = "https://github.com/vadimware/factr"
 before-packaging-command = "cargo build --release"
 
 [package.metadata.packager.macos]
